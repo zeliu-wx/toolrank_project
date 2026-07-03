@@ -1,0 +1,13 @@
+{
+  "tool_id": "conkas",
+  "tool_name": "Conkas",
+  "d7_input_support": {
+    "sol": true,
+    "bytecode": false,
+    "runtime": true
+  },
+  "d8_mode": "symbolic",
+  "d2_solidity_versions": "0.4.0-0.5.99",
+  "d3_multifile_support": "no",
+  "d3_multicontract_support": "yes"
+}

@@ -1,0 +1,13 @@
+{
+  "tool_id": "securify2",
+  "tool_name": "Securify2",
+  "d7_input_support": {
+    "sol": true,
+    "bytecode": true,
+    "runtime": false
+  },
+  "d8_mode": "symbolic",
+  "d2_solidity_versions": "0.5.0-0.5.99",
+  "d3_multifile_support": "yes",
+  "d3_multicontract_support": "yes"
+}

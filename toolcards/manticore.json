@@ -1,0 +1,13 @@
+{
+  "tool_id": "manticore",
+  "tool_name": "Manticore",
+  "d7_input_support": {
+    "sol": true,
+    "bytecode": true,
+    "runtime": true
+  },
+  "d8_mode": "symbolic",
+  "d2_solidity_versions": "0.4.0-0.8.99",
+  "d3_multifile_support": "yes",
+  "d3_multicontract_support": "yes"
+}

@@ -1,0 +1,2487 @@
+{
+  "passages": [
+    {
+      "passage_id": "p_smartbug2.0 paper_0",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "conkas",
+      "counterpart_tool_ids": [
+        "slither",
+        "smartcheck"
+      ],
+      "category": "arithmetic",
+      "knowledge_kind": "tool_complementarity",
+      "action_scope": [
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:k-means selected best-tool-per-cluster suite"
+      ],
+      "relation_to_owner": "owner_complements",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Conkas, Slither, and Smartcheck together found 2,481/3,381 vulnerabilities (73.38%) with arithmetic included and 1,518/1,976 (76.78%) without arithmetic, averaging 56.19s total.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: tool combination | Scenario: k-means selected best-tool-per-cluster suite | ToolRank tools: conkas, slither, smartcheck | Tasks: arithmetic, access_control, denial_of_service, reentrancy, unchecked_low_level_calls, bad_randomness, front_running, time_manipulation, short_addresses, solidity smart-contract v..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_1",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "conkas",
+      "counterpart_tool_ids": [
+        "slither",
+        "smartcheck"
+      ],
+      "category": "arithmetic",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:arithmetic-included"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Arithmetic-included totals were Conkas 1,294/3,381, Slither 1,290/3,381, and Smartcheck 470/3,381.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: arithmetic-included | ToolRank tools: conkas, slither, smartcheck | Tasks: arithmetic, access_control, denial_of_service, reentrancy, unchecked_low_level_calls, bad_randomness, front_running, time_manipulation, short_addresses, solidity smart-contract vulnerability detect..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_2",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "conkas",
+        "smartcheck"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:arithmetic-excluded"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Without arithmetic, Slither found 1,210/1,976, Smartcheck 458/1,976, and Conkas 390/1,976.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: arithmetic-excluded | ToolRank tools: conkas, slither, smartcheck | Tasks: access_control, denial_of_service, reentrancy, unchecked_low_level_calls, bad_randomness, front_running, time_manipulation, short_addresses, solidity smart-contract vulnerability detection | Datase..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_3",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "conkas",
+        "smartcheck"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:single-machine runtime benchmark"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Slither ran in 1.14s on average, Smartcheck in 1.86s, and Conkas in 53.19s; the combined suite averaged 56.19s.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: single-machine runtime benchmark | ToolRank tools: conkas, slither, smartcheck | Tasks: solidity smart-contract vulnerability detection | Datasets: SmartBugs Results | Dataset profile: 1,500-contract single-machine benchmark used to report average execution times for the S..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_4",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "osiris",
+      "counterpart_tool_ids": [],
+      "category": "arithmetic",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:DASP arithmetic detection on the full manually annotated dataset"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Osiris was the strongest arithmetic detector, correctly finding 944/1,405 arithmetic vulnerabilities (1,081/3,381 total).",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: DASP arithmetic detection on the full manually annotated dataset | ToolRank tools: osiris | Tasks: arithmetic, solidity smart-contract vulnerability detection | Datasets: Manual line-level dataset | Dataset profile: Full line-level manual ground truth over 2,182 Solidity smart..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_5",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "smartcheck",
+      "counterpart_tool_ids": [],
+      "category": "denial_of_service",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:DASP denial-of-service detection on the full manual dataset"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Smartcheck was particularly adept at denial-of-service, correctly finding 195/257 DOS vulnerabilities (470/3,381 total).",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: DASP denial-of-service detection on the full manual dataset | ToolRank tools: smartcheck | Tasks: denial_of_service, solidity smart-contract vulnerability detection | Datasets: Manual line-level dataset | Dataset profile: Full line-level manual ground truth over 2,182 Solidity..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_6",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "solhint",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:DASP category-specific detection on the full manual dataset"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Solhint performed well on access control, unchecked low-level calls, bad randomness, and time manipulation, with 33/92, 267/583, 17/38, and 424/898 correct detections respectively.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: DASP category-specific detection on the full manual dataset | ToolRank tools: solhint | Tasks: access_control, unchecked_low_level_calls, bad_randomness, time_manipulation, solidity smart-contract vulnerability detection | Datasets: Manual line-level dataset | Dataset profile:..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_7",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:DASP category-specific detection on the full manual dataset"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Vandal excelled on reentrancy and unchecked low-level calls, finding 65/91 and 538/583 respectively, and also 23/92 access-control cases.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: DASP category-specific detection on the full manual dataset | ToolRank tools: vandal | Tasks: reentrancy, unchecked_low_level_calls, access_control, solidity smart-contract vulnerability detection | Datasets: Manual line-level dataset | Dataset profile: Full line-level manual g..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_8",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "solhint",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:line-level DASP detection with broad category coverage"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The paper explicitly warns that Solhint's strong coverage comes with a high false-positive rate, making it harder to use for auditing.",
+      "limitations_text": "High recall does not translate to high trust because false positives remain substantial.",
+      "source_excerpt": "Relation: fp precision risk | Scenario: line-level DASP detection with broad category coverage | ToolRank tools: solhint | Tasks: access_control, unchecked_low_level_calls, bad_randomness, time_manipulation, solidity smart-contract vulnerability detection | Datasets: Manual line-level dataset | Dataset profile: Full..."
+    },
+    {
+      "passage_id": "p_smartbug2.0 paper_9",
+      "source_id": "smartbug2.0 paper",
+      "owner_tool": "manticore",
+      "counterpart_tool_ids": [],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source/bytecode executions under the paper's 10-15 minute timeout"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Manticore produced no successful analyses; the authors observed segmentation faults and timeouts without completed results.",
+      "limitations_text": "No usable vulnerability results were returned for the benchmark run.",
+      "source_excerpt": "Relation: failure mode | Scenario: source/bytecode executions under the paper's 10-15 minute timeout | ToolRank tools: manticore | Tasks: solidity smart-contract vulnerability detection | Datasets: SmartBugs Results | Dataset profile: SmartBugs 2.0 benchmark execution over the paper's source/bytecode runs. | Metric..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_0",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "oyente",
+        "osiris",
+        "securify2",
+        "mythril",
+        "confuzzius",
+        "smartian",
+        "sfuzz",
+        "mando-hgt"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "tool_complementarity",
+      "action_scope": [
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code overlap analysis across the full SCD corpus."
+      ],
+      "relation_to_owner": "owner_complements",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "No contract was flagged by all tools. Only 106 contracts were flagged by at most three tools, so combining scanners did not create a consensus. Slither and MANDO-GURU produced t...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: tool combination | Scenario: source-code overlap analysis across the full SCD corpus. | ToolRank tools: slither, oyente, osiris, securify2, mythril, confuzzius, smartian, sfuzz, mando-hgt | Tasks: reentrancy, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 uniq..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_1",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "maian",
+        "securify2",
+        "mythril",
+        "confuzzius",
+        "smartian"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code suicide overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "No contract was identified as vulnerable by all seven tools. The highest agreement was six of seven tools on only three contracts, and just 70 contracts were marked vulnerable b...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: source-code suicide overlap study. | ToolRank tools: slither, maian, securify2, mythril, confuzzius, smartian | Tasks: suicide, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 unique Solidity source contracts from Ethereum Mainne..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_2",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [
+        "osiris",
+        "securify2",
+        "confuzzius"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code ToD overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "No contract was marked vulnerable by all five tested tools, and there was no four-of-five agreement. Osiris and external comparator overlapped strongly because both derive from...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: source-code ToD overlap study. | ToolRank tools: oyente, osiris, securify2, confuzzius | Tasks: transaction_order_dependency, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 unique Solidity source contracts from Ethereum Mainnet..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_3",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [
+        "osiris",
+        "mythril",
+        "confuzzius",
+        "smartian",
+        "mando-hgt"
+      ],
+      "category": "arithmetic",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code arithmetic-bug overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "No full agreement was observed. Oyente, Osiris, and Confuzzius overlapped on 2,519 samples, which the paper attributes partly to the simplicity of the bug class, although compil...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: source-code arithmetic-bug overlap study. | ToolRank tools: oyente, osiris, mythril, confuzzius, smartian, mando-hgt | Tasks: arithmetic, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 unique Solidity source contracts from Ether..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_4",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "securify2",
+        "mythril",
+        "smartian"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code txOrigin overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "All five analyzed tools agreed on only one sample. Slither overlapped with SmartCheck on most of its detections, while the remaining tools mostly disagreed.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: source-code txOrigin overlap study. | ToolRank tools: slither, smartcheck, securify2, mythril, smartian | Tasks: access_control, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 unique Solidity source contracts from Ethereum Mainn..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_5",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "maian",
+        "securify2",
+        "confuzzius",
+        "sfuzz"
+      ],
+      "category": "denial_of_service",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code locked-ether overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "None of the six tools agreed on a single sample. SmartCheck flagged the most contracts, with substantial overlap with Slither and Securify2; Maian overlapped with the other tool...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: source-code locked-ether overlap study. | ToolRank tools: slither, smartcheck, maian, securify2, confuzzius, sfuzz | Tasks: denial_of_service, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 unique Solidity source contracts from..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_6",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "securify2",
+        "mythril",
+        "confuzzius",
+        "sfuzz"
+      ],
+      "category": "unchecked_low_level_calls",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code delegatecall overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "No tool consensus existed on any contract. Mythril showed substantial overlap with external comparator and external comparator, indicating that its detections are partially alig...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: source-code delegatecall overlap study. | ToolRank tools: slither, securify2, mythril, confuzzius, sfuzz | Tasks: unchecked_low_level_calls, source_code_quantitative_evaluation | Datasets: Source Code Dataset | Dataset profile: 77,219 unique Solidity source contracts from Et..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_7",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "maian",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:bytecode reentrancy overlap study."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Vandal identified the highest number of reentrancy-positive contracts. Oyente and Mythril coincided on only five contracts, and all three tools overlapped on just six contracts,...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: bytecode reentrancy overlap study. | ToolRank tools: vandal, maian, oyente, mythril | Tasks: reentrancy, bytecode_quantitative_evaluation | Datasets: Bytecode Dataset | Dataset profile: 4,062,844 unique bytecodes from Ethereum Mainnet and testnets after deduplication. | M..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_8",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "maian",
+        "oyente",
+        "mythril"
+      ],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "hard_scheduling_rule",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:bytecode suicide detection capability check."
+      ],
+      "relation_to_owner": "owner_ineligible",
+      "evidence_basis": "reproducible_issue",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Oyente is incapable of recognizing suicidal contracts in bytecode, while Vandal, Maian, and Mythril can detect them. Vandal produced the most positives, and Maian/Vandal overlap...",
+      "limitations_text": "bytecode suicide detection; categorical inability for Oyente on this task in the paper's evaluation.",
+      "source_excerpt": "Relation: hard scheduling rule | Scenario: bytecode suicide detection capability check. | ToolRank tools: vandal, maian, oyente, mythril | Tasks: suicide, bytecode_quantitative_evaluation | Datasets: Bytecode Dataset | Dataset profile: 4,062,844 unique bytecodes from Ethereum Mainnet and testnets after deduplication..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_9",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "mythril"
+      ],
+      "category": "unchecked_low_level_calls",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:bytecode unchecked-call precision-risk analysis."
+      ],
+      "relation_to_owner": "owner_weaker",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Vandal flagged 1,771,577 contracts as vulnerable, over one-fourth of the corpus, while overlap with Mythril remained below 0.5% of Vandal's detections. The paper frames this as...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: bytecode unchecked-call precision-risk analysis. | ToolRank tools: vandal, mythril | Tasks: unchecked_low_level_calls, bytecode_quantitative_evaluation | Datasets: Bytecode Dataset | Dataset profile: 4,062,844 unique bytecodes from Ethereum Mainnet and testnets after deduplica..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_10",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "mythril"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:bytecode txOrigin precision-risk analysis."
+      ],
+      "relation_to_owner": "owner_weaker",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Mythril and Vandal agreed on only 2,372 contracts, and together they flagged just 1.3% of the corpus. The paper suggests possible overestimation when both tools are used together.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: bytecode txOrigin precision-risk analysis. | ToolRank tools: vandal, mythril | Tasks: txorigin, bytecode_quantitative_evaluation | Datasets: Bytecode Dataset | Dataset profile: 4,062,844 unique bytecodes from Ethereum Mainnet and testnets after deduplication. | Metric basis: p..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_11",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [
+        "mythril"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:bytecode time-dependency overlap study."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Oyente and Mythril agreed on 8,735 contracts, but they diverged on over 90% of the contracts they flagged, indicating substantial disagreement in this category.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: bytecode time-dependency overlap study. | ToolRank tools: oyente, mythril | Tasks: time_dependency, bytecode_quantitative_evaluation | Datasets: Bytecode Dataset | Dataset profile: 4,062,844 unique bytecodes from Ethereum Mainnet and testnets after deduplication. | Metric ba..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_12",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "securify2",
+      "counterpart_tool_ids": [
+        "osiris",
+        "confuzzius",
+        "smartian",
+        "mythril",
+        "sfuzz",
+        "oyente",
+        "slither",
+        "mando-hgt"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:ground-truth call-subtype reentrancy evaluation on source-code tools."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Securify2 achieved the best F1 among the reported tools on the call subtype (0.38) but only on a reduced evaluated subset. Overall, all tools performed poorly, with several exhi...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: ground-truth call-subtype reentrancy evaluation on source-code tools. | ToolRank tools: osiris, confuzzius, smartian, mythril, sfuzz, oyente, slither, securify2, mando-hgt | Tasks: reentrancy, call_subtype_reentrancy | Datasets: Reentrancy Ground Truth | Dataset profile:..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_13",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "osiris",
+        "confuzzius",
+        "smartian",
+        "mythril",
+        "sfuzz",
+        "oyente",
+        "securify2",
+        "mando-hgt"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:ground-truth all-subtypes reentrancy evaluation on source-code tools."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Slither had the best overall F1 on the hand-labeled reentrancy dataset (0.73), followed by Securify2 (0.61). Most other tools remained far below that range, and MANDO-GURU showe...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: ground-truth all-subtypes reentrancy evaluation on source-code tools. | ToolRank tools: osiris, confuzzius, smartian, mythril, sfuzz, oyente, slither, securify2, mando-hgt | Tasks: reentrancy, all_subtypes_reentrancy | Datasets: Reentrancy Ground Truth | Dataset profile:..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_14",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:ground-truth call-subtype reentrancy evaluation on bytecode tools."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Vandal achieved the strongest F1 on the call subtype (0.22) among the bytecode tools, with Oyente at 0.15 and Mythril at 0.00.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: ground-truth call-subtype reentrancy evaluation on bytecode tools. | ToolRank tools: vandal, oyente, mythril | Tasks: reentrancy, call_subtype_reentrancy | Datasets: Reentrancy Ground Truth | Dataset profile: 13,773 manually labeled reentrancy contracts, annotated for cal..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_15",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:ground-truth all-subtypes reentrancy evaluation on bytecode tools."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "When all reentrancy subtypes are included, Vandal improves to F1 0.40, whereas Oyente remains low at 0.08 and Mythril at 0.00.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: ground-truth all-subtypes reentrancy evaluation on bytecode tools. | ToolRank tools: vandal, oyente, mythril | Tasks: reentrancy, all_subtypes_reentrancy | Datasets: Reentrancy Ground Truth | Dataset profile: 13,773 manually labeled reentrancy contracts, annotated for cal..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_16",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:audit-dataset reentrancy evaluation on bytecode tools."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Vandal achieved F1 0.40 on audited reentrancy cases, while Oyente and Mythril both scored 0.00, reinforcing the paper's conclusion that all tools struggled on audited ground truth.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: audit-dataset reentrancy evaluation on bytecode tools. | ToolRank tools: vandal, oyente, mythril | Tasks: reentrancy, bytecode_ground_truth_analysis | Datasets: Audits Ground Truth | Dataset profile: 373 audited smart contracts with security-firm labels across multiple vu..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_17",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "oyente",
+        "mythril"
+      ],
+      "category": "arithmetic",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:audit-dataset multi-vulnerability evaluation on bytecode tools."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The audit-dataset table shows mixed results: Mythril performed weakly on integer overflow/underflow (F1 0.09) and modestly on time dependency (0.18), Vandal performed best on un...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: audit-dataset multi-vulnerability evaluation on bytecode tools. | ToolRank tools: vandal, oyente, mythril | Tasks: arithmetic, unchecked_low_level_calls, transaction_order_dependency, time_dependency, bytecode_ground_truth_analysis | Datasets: Audits Ground Truth | Datase..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_18",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "maian",
+        "oyente",
+        "osiris",
+        "securify2",
+        "mythril",
+        "confuzzius",
+        "smartian",
+        "sfuzz",
+        "mando-hgt"
+      ],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code scan robustness assessment under large-scale batch execution."
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Only a subset of tools could successfully check at least half the contracts. The paper attributes failures to compiler-version drift, third-party dependency churn, and the prese...",
+      "limitations_text": "robustness/completion-rate analysis rather than vulnerability-detection accuracy; unfinished scans were common for so...",
+      "source_excerpt": "Relation: compatibility constraint | Scenario: source-code scan robustness assessment under large-scale batch execution. | ToolRank tools: slither, smartcheck, maian, oyente, osiris, securify2, mythril, confuzzius, smartian, sfuzz, mando-hgt | Tasks: scan_robustness_evaluation | Datasets: Source Code Dataset | Datas..."
+    },
+    {
+      "passage_id": "p_Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts_19",
+      "source_id": "Large-Scale_Study_of_Vulnerability_Scanners_for_Ethereum_Smart_Contracts",
+      "owner_tool": "maian",
+      "counterpart_tool_ids": [
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:same-tool source-versus-bytecode comparison."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Maian produced more positives on bytecode than on source code for suicidal and locked-ether cases, while Mythril generally produced more positives on source code than on bytecod...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: same-tool source-versus-bytecode comparison. | ToolRank tools: maian, mythril | Tasks: suicide, locked_ether, delegatecall, reentrancy, arithmetic, txorigin, time_dependency, source_vs_bytecode_comparison | Datasets: Source Code Dataset, Bytecode Dataset | Dataset profile: Cros..."
+    },
+    {
+      "passage_id": "p_SAST_0",
+      "source_id": "SAST",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "securify2",
+        "smartcheck",
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Tool-rule coverage on the unified smart-contract vulnerability taxonomy."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator has the broadest coverage at 44/45 taxonomy types; Slither covers 43/45 and Securify2 37/45, while SmartCheck, Mythril, Manticore, Osiris, and Oyente cover s...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: Tool-rule coverage on the unified smart-contract vulnerability taxonomy. | ToolRank tools: securify2, slither, smartcheck, manticore, mythril, osiris, oyente | Tasks: access control, arithmetic, block manipulation, cryptographic, denial of services, reentrancy, storage & mem..."
+    },
+    {
+      "passage_id": "p_SAST_1",
+      "source_id": "SAST",
+      "owner_tool": "securify2",
+      "counterpart_tool_ids": [
+        "slither",
+        "smartcheck",
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Consistency of detection across vulnerability categories."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Access Control and Reentrancy are generally easier for tools to detect than Storage & Memory, Arithmetic, and Cryptographic vulnerabilities. external comparator and Securify2 st...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Consistency of detection across vulnerability categories. | ToolRank tools: securify2, slither, smartcheck, manticore, mythril, osiris, oyente | Tasks: access control, arithmetic, block manipulation, cryptographic, denial of services, reentrancy, storage & memory, category-wise..."
+    },
+    {
+      "passage_id": "p_SAST_2",
+      "source_id": "SAST",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "securify2",
+        "smartcheck",
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Benchmark effectiveness evaluation on the authors' unified taxonomy and relabeled ground truth."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator is the best overall performer with 72.00% recall, 3.35% precision, and 6.40% F1. Among whitelist tools, Slither is the strongest overall open-source tool wit...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Benchmark effectiveness evaluation on the authors' unified taxonomy and relabeled ground truth. | ToolRank tools: securify2, slither, smartcheck, manticore, mythril, osiris, oyente | Tasks: access control, arithmetic, block manipulation, cryptographic, denial of services,..."
+    },
+    {
+      "passage_id": "p_SAST_4",
+      "source_id": "SAST",
+      "owner_tool": "manticore",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Timeout-heavy symbolic execution failure mode."
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Manticore succeeded on only 112 of 788 benchmark files and timed out on 626; on the 300-contract SolidiFI benchmark it failed every contract (260 timeouts and 40 compilation iss...",
+      "limitations_text": "This is a benchmark- and timeout-specific failure mode; it indicates that Manticore can be impractical for large-scal...",
+      "source_excerpt": "Relation: failure mode | Scenario: Timeout-heavy symbolic execution failure mode. | ToolRank tools: manticore | Tasks: access control, arithmetic, block manipulation, cryptographic, denial of services, reentrancy, storage & memory, smart contract vulnerability detection | Datasets: SolidiFI Benchmark, SC-SAST benchm..."
+    },
+    {
+      "passage_id": "p_SAST_5",
+      "source_id": "SAST",
+      "owner_tool": "securify2",
+      "counterpart_tool_ids": [
+        "oyente",
+        "osiris"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "hard_scheduling_rule",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Compiler-version incompatibility during source-code compilation and AST generation."
+      ],
+      "relation_to_owner": "owner_ineligible",
+      "evidence_basis": "reproducible_issue",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator can only handle certain solc 0.5.x-0.6.x contracts, external comparator only supports up to v0.4.19, and external comparator only up to v0.4.21. Contracts co...",
+      "limitations_text": "Applies to source-code compilation paths and AST-based analyzers in the paper's setup; the rule is version-specific a...",
+      "source_excerpt": "Relation: hard scheduling rule | Scenario: Compiler-version incompatibility during source-code compilation and AST generation. | ToolRank tools: securify2, oyente, osiris | Tasks: access control, arithmetic, block manipulation, cryptographic, denial of services, reentrancy, storage & memory, smart contract vulnerabi..."
+    },
+    {
+      "passage_id": "p_SAST_6",
+      "source_id": "SAST",
+      "owner_tool": "securify2",
+      "counterpart_tool_ids": [
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente"
+      ],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "hard_scheduling_rule",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Single-file-only tool pipelines failing on multi-file Solidity projects."
+      ],
+      "relation_to_owner": "owner_ineligible",
+      "evidence_basis": "reproducible_issue",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The paper reports that tools except external comparator, Slither, and SmartCheck only support single-file analysis, which prevents them from scanning projects with imports and c...",
+      "limitations_text": "This is a categorical project-structure limit, not a soft performance issue; it matters whenever the target project s...",
+      "source_excerpt": "Relation: hard scheduling rule | Scenario: Single-file-only tool pipelines failing on multi-file Solidity projects. | ToolRank tools: securify2, manticore, mythril, osiris, oyente | Tasks: smart contract vulnerability detection | Datasets: BNB Benchmark | Dataset profile: Real-world BNB benchmark component with 113..."
+    },
+    {
+      "passage_id": "p_SAST_7",
+      "source_id": "SAST",
+      "owner_tool": "securify2",
+      "counterpart_tool_ids": [
+        "slither"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "tool_complementarity",
+      "action_scope": [
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Inclusive ensemble over top-recall tools."
+      ],
+      "relation_to_owner": "owner_complements",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The inclusive combination of external comparator, Securify2, and Slither raises recall to 91.5% (9,513/10,394) but lowers precision to 2.67%, adding 36.77 percentage points more...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: tool combination | Scenario: Inclusive ensemble over top-recall tools. | ToolRank tools: securify2, slither | Tasks: smart contract vulnerability detection | Datasets: SC-SAST benchmark suite | Dataset profile: 10,394 function-level vulnerabilities over 788 vulnerable contracts; combination evaluated at th..."
+    },
+    {
+      "passage_id": "p_SAST_8",
+      "source_id": "SAST",
+      "owner_tool": "securify2",
+      "counterpart_tool_ids": [
+        "slither",
+        "smartcheck",
+        "mythril",
+        "osiris",
+        "oyente"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "tool_complementarity",
+      "action_scope": [
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Consensus-based ensemble for reducing false alarms."
+      ],
+      "relation_to_owner": "owner_complements",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Majority voting improves precision to 36.10% and F1 to 11.58% but reduces recall to 6.90%, showing that consensus can suppress false alarms at the cost of missing many vulnerabi...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: tool combination | Scenario: Consensus-based ensemble for reducing false alarms. | ToolRank tools: securify2, slither, smartcheck, mythril, osiris, oyente | Tasks: smart contract vulnerability detection | Datasets: SC-SAST benchmark suite | Dataset profile: Benchmark-wide function-level ground truth over 7..."
+    },
+    {
+      "passage_id": "p_SAST_9",
+      "source_id": "SAST",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [
+        "securify2",
+        "slither",
+        "smartcheck",
+        "manticore",
+        "mythril",
+        "osiris"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Large-scale scanning efficiency under the paper's experimental server and timeout settings."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Oyente is the fastest by average runtime (13.2 s), followed by Slither (16.6 s) and external comparator (17.5 s), while Manticore and Mythril are much slower at 1,547.6 s and 57...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: Large-scale scanning efficiency under the paper's experimental server and timeout settings. | ToolRank tools: securify2, slither, smartcheck, manticore, mythril, osiris, oyente | Tasks: smart contract vulnerability detection | Datasets: SC-SAST benchmark suite, BNB Benchma..."
+    },
+    {
+      "passage_id": "p_Survey on Quality Assurance of Smart Contracts_1",
+      "source_id": "Survey on Quality Assurance of Smart Contracts",
+      "owner_tool": "mythril",
+      "counterpart_tool_ids": [
+        "confuzzius",
+        "conkas",
+        "maian",
+        "manticore",
+        "osiris",
+        "oyente",
+        "securify",
+        "sfuzz",
+        "slither",
+        "smartcheck",
+        "solhint"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code vulnerability detection on Solidity smart contracts"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "internal_eval",
+      "claim_text": "Among whitelist tools, Mythril is the strongest traditional detector by overall accuracy/F1; external comparator and external comparator outperform the traditional tools overall...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: source-code vulnerability detection on Solidity smart contracts | ToolRank tools: confuzzius, conkas, maian, manticore, mythril, osiris, oyente, securify, sfuzz, slither, smartcheck, solhint | Tasks: reentrancy, arithmetic, unchecked_low_level_calls, access_control, denia..."
+    },
+    {
+      "passage_id": "p_Survey on Quality Assurance of Smart Contracts_2",
+      "source_id": "Survey on Quality Assurance of Smart Contracts",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "confuzzius",
+        "conkas",
+        "maian",
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente",
+        "securify",
+        "sfuzz",
+        "smartcheck",
+        "solhint"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:resource-efficiency comparison of selected vulnerability detectors"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "internal_eval",
+      "claim_text": "Slither and solhint are the fastest selected tools at about 1 second each; external comparator is also fast at 2.2 seconds, while Conkas is the slowest at roughly 48 minutes.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: resource-efficiency comparison of selected vulnerability detectors | ToolRank tools: confuzzius, conkas, maian, manticore, mythril, osiris, oyente, securify, sfuzz, slither, smartcheck, solhint | Tasks: reentrancy, arithmetic, unchecked_low_level_calls, access_control, den..."
+    },
+    {
+      "passage_id": "p_Survey on Quality Assurance of Smart Contracts_3",
+      "source_id": "Survey on Quality Assurance of Smart Contracts",
+      "owner_tool": "conkas",
+      "counterpart_tool_ids": [
+        "confuzzius",
+        "maian",
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente",
+        "securify",
+        "sfuzz",
+        "slither",
+        "smartcheck",
+        "solhint"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:version-compatibility evaluation for Solidity analyzers"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "internal_eval",
+      "claim_text": "Most selected tools support Solidity 0.8.x, while older tools remain restricted to 0.4.x-0.6.x, limiting their applicability to newer contracts.",
+      "limitations_text": "Version mismatch constrains deployment; tools are tied to specific Solidity compiler families and cannot be assumed u...",
+      "source_excerpt": "Relation: compatibility constraint | Scenario: version-compatibility evaluation for Solidity analyzers | ToolRank tools: confuzzius, conkas, maian, manticore, mythril, osiris, oyente, securify, sfuzz, slither, smartcheck, solhint | Tasks: reentrancy, arithmetic, unchecked_low_level_calls, access_control, denial_of_s..."
+    },
+    {
+      "passage_id": "p_Survey on Quality Assurance of Smart Contracts_4",
+      "source_id": "Survey on Quality Assurance of Smart Contracts",
+      "owner_tool": "confuzzius",
+      "counterpart_tool_ids": [
+        "conkas",
+        "maian",
+        "manticore",
+        "mythril",
+        "osiris",
+        "oyente",
+        "securify",
+        "sfuzz",
+        "slither",
+        "smartcheck",
+        "solhint"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:category-coverage comparison across the paper's vulnerability taxonomy"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "internal_eval",
+      "claim_text": "Confuzzius and Mythril provide the strongest whitelist coverage among the traditional tools; the external LLMs external comparator and external comparator cover all 10 benchmark...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: category-coverage comparison across the paper's vulnerability taxonomy | ToolRank tools: confuzzius, conkas, maian, manticore, mythril, osiris, oyente, securify, sfuzz, slither, smartcheck, solhint | Tasks: reentrancy, arithmetic, unchecked_low_level_calls, access_control, d..."
+    },
+    {
+      "passage_id": "p_Survey on Quality Assurance of Smart Contracts_5",
+      "source_id": "Survey on Quality Assurance of Smart Contracts",
+      "owner_tool": "mythril",
+      "counterpart_tool_ids": [
+        "confuzzius",
+        "conkas",
+        "maian",
+        "manticore",
+        "osiris",
+        "oyente",
+        "securify",
+        "sfuzz",
+        "slither",
+        "smartcheck",
+        "solhint"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:false-positive risk on safe-vs-vulnerable classification"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "internal_eval",
+      "claim_text": "Although external comparator attains the best overall accuracy/F1, it still produces false positives, and external comparator has the highest FP count; the paper warns that LLM-...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: false-positive risk on safe-vs-vulnerable classification | ToolRank tools: confuzzius, conkas, maian, manticore, mythril, osiris, oyente, securify, sfuzz, slither, smartcheck, solhint | Tasks: reentrancy, arithmetic, unchecked_low_level_calls, access_control, denial_of_service..."
+    },
+    {
+      "passage_id": "p_VulHunter_0",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "slither",
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Dataset_1 source-code evaluation with benign:vulnerable=2:1."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VulHunter achieved overall ACC 90.04±1.89, Precision 87.92±2.28, Recall 83.41±3.17, and F1 85.60±2.99, making it the strongest whitelist tool overall on Dataset_1.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Dataset_1 source-code evaluation with benign:vulnerable=2:1. | ToolRank tools: vulhunter, smartcheck, slither, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_running, time_mani..."
+    },
+    {
+      "passage_id": "p_VulHunter_1",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "slither",
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Dataset_1 source-code evaluation with benign:vulnerable=5:1."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VulHunter remained the strongest whitelist tool and the paper reports an ACC increase to 92.57±1.81, while recall dropped relative to the 2:1 setting because the model became mo...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Dataset_1 source-code evaluation with benign:vulnerable=5:1. | ToolRank tools: vulhunter, smartcheck, slither, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_running, time_mani..."
+    },
+    {
+      "passage_id": "p_VulHunter_2",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Dataset_2 bytecode evaluation with benign:vulnerable=2:1."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VulHunter led the bytecode-only benchmark with overall ACC 95.73±2.46, Precision 90.48±5.31, Recall 97.73±0.72, and F1 93.96±3.38, while also reporting 0% failed analyses.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Dataset_2 bytecode evaluation with benign:vulnerable=2:1. | ToolRank tools: vulhunter, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, time_manipulation | Datasets: Dataset_2 | Datase..."
+    },
+    {
+      "passage_id": "p_VulHunter_3",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "slither",
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Production source-code corpus scanning to estimate vulnerability prevalence.",
+        "scale:large"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VulHunter reported 98,376 total issues on Dataset_3 and led the comparison across severity levels, slightly ahead of external comparator and well ahead of the other baselines.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: Production source-code corpus scanning to estimate vulnerability prevalence. | ToolRank tools: vulhunter, smartcheck, slither, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_runni..."
+    },
+    {
+      "passage_id": "p_VulHunter_4",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Production bytecode scanning to estimate vulnerability prevalence at scale.",
+        "scale:large"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "On the 10,000-sample benchmark, VulHunter found 71,375 issues, far above the whitelist baselines; the paper also notes that VulHunter could process the full 183,710-bytecode cor...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: Production bytecode scanning to estimate vulnerability prevalence at scale. | ToolRank tools: vulhunter, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_running, time_manipulation..."
+    },
+    {
+      "passage_id": "p_VulHunter_5",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "slither",
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Program overhead comparison on medium-sized Ethereum contracts.",
+        "scale:medium"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VulHunter averaged 4.4 seconds and 81.3MB per contract, substantially below symbolic-execution and fuzzing baselines and also better than the paper's pattern-matching and ML com...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: Program overhead comparison on medium-sized Ethereum contracts. | ToolRank tools: vulhunter, smartcheck, slither, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_running, time_ma..."
+    },
+    {
+      "passage_id": "p_VulHunter_6",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Detector compatibility across deep-learning and classical-ML back ends."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "All tested back ends remained usable; Bi^2-external comparator was best overall, external comparator/external comparator and external comparator/external comparator/external com...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Detector compatibility across deep-learning and classical-ML back ends. | ToolRank tools: vulhunter | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_running, time_manipulation, smart-contract vulnerability dete..."
+    },
+    {
+      "passage_id": "p_VulHunter_7",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Varying n_block, n_cycle, n_seq, choose, T, epoch, lambda, q_b, q_m, and nneurons."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Longer instances helped until saturation; choose=longest was best; T=768 improved over 256; epoch=100 improved over 20; lambda tuned the precision/recall trade-off; and q_b/q_m...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Varying n_block, n_cycle, n_seq, choose, T, epoch, lambda, q_b, q_m, and nneurons. | ToolRank tools: vulhunter | Tasks: reentrancy, reentrancy-eth detection | Datasets: Dataset_1 | Dataset profile: Reentrancy-eth sweep on Dataset_1. | Metric basis: Control-variable hyperparamet..."
+    },
+    {
+      "passage_id": "p_VulHunter_8",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "slither"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "tool_complementarity",
+      "action_scope": [
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Single-path feasibility verification and solved-input recovery."
+      ],
+      "relation_to_owner": "owner_complements",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "With external comparator, external comparator, and external comparator, VulHunter converted several apparent positives on infeasible paths into correct negatives and also recove...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: tool combination | Scenario: Single-path feasibility verification and solved-input recovery. | ToolRank tools: vulhunter, slither | Tasks: arbitrary-send, reentrancy-eth, integer-overflow, block-other-parameters, low-level-calls, send-transfer | Dataset profile: 18 crafted feasible/infeasible-path contract..."
+    },
+    {
+      "passage_id": "p_VulHunter_9",
+      "source_id": "VulHunter",
+      "owner_tool": "vulhunter",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "slither",
+        "securify",
+        "oyente",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Authenticity validation on major Ethereum incidents."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VulHunter marked the showcased incident contracts as TP, including The Dao reentrancy, BEC/SmartMesh integer-overflow, Parity access-control failures, KotET denial-of-service, a...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Authenticity validation on major Ethereum incidents. | ToolRank tools: vulhunter, smartcheck, slither, securify, oyente, mythril | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, denial_of_service, bad_randomness, front_running, time_manipulation | Dat..."
+    },
+    {
+      "passage_id": "p_gptscan_0",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [
+        "slither"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Detecting unauthorized token transfers in smart contracts."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Slither produced many warnings for Unauthorized Transfer-related rules, and the manually checked relevant warnings were all false positives. GPTScan uses code semantics plus sta...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Detecting unauthorized token transfers in smart contracts. | ToolRank tools: gptscan, slither | Tasks: access_control, Unauthorized Transfer | Datasets: Top200, Web3Bugs, DefiHacks | Dataset profile: Mixed token-contract and large multi-file smart-contract projects; evalu..."
+    },
+    {
+      "passage_id": "p_gptscan_1",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Coverage of logic-vulnerability families across smart-contract projects."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "MScan detected 7 of 12 Price Manipulation cases in DefiHacks with 100% precision, but it failed to detect other logic vulnerabilities. GPTScan spans a much broader logic-vulnera...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: Coverage of logic-vulnerability families across smart-contract projects. | ToolRank tools: gptscan | Tasks: access_control, Price Manipulation by AMM, Price Manipulation by Buying Tokens, Risky First Deposit, Front Running, Slippage, Unauthorized Transfer, Approval Not Clear..."
+    },
+    {
+      "passage_id": "p_gptscan_2",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:LLM-only smart-contract vulnerability detection."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The cited GPT-only approach reported very low precision and recall (GPT-4-32k: 4.14% precision/43.84% recall; Claude-v1.3-100k: 4.30% precision/35.62% recall), much worse than G...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: LLM-only smart-contract vulnerability detection. | ToolRank tools: gptscan | Tasks: logic vulnerability detection | Datasets: Web3Bugs, DefiHacks | Dataset profile: Reported prior-work results on large audited Web3Bugs projects and vulnerable DefiHacks token contracts. |..."
+    },
+    {
+      "passage_id": "p_gptscan_3",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Large, diverse projects where GPT matching and static confirmation still leave some false positives."
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "GPTScan's precision drops to 57.14% on Web3Bugs, and false positives are concentrated in Price Manipulation by AMM plus several coarse-grained logic types such as Unauthorized T...",
+      "limitations_text": "Most relevant when projects contain many Solidity files and complex functions that survive the filtering stages.",
+      "source_excerpt": "Relation: fp precision risk | Scenario: Large, diverse projects where GPT matching and static confirmation still leave some false positives. | ToolRank tools: gptscan | Tasks: Price Manipulation by AMM, Unauthorized Transfer, Slippage, Wrong Interest Rate Order, Wrong Checkpoint Order, Approval Not Cleared, Risky Fi..."
+    },
+    {
+      "passage_id": "p_gptscan_4",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Failure analysis for missed detections in the GPTScan pipeline."
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "False negatives mainly come from missing alias analysis in static dataflow tracing, GPT mismatches for scenario/property recognition, multiple slippage variants, and a comment-c...",
+      "limitations_text": "These are the dominant failure modes observed in the evaluated datasets, not an exhaustive list of all possible misses.",
+      "source_excerpt": "Relation: failure mode | Scenario: Failure analysis for missed detections in the GPTScan pipeline. | ToolRank tools: gptscan | Tasks: Price Manipulation by AMM, Risky First Deposit, Front Running, Slippage, Unauthorized Transfer | Datasets: Web3Bugs, DefiHacks | Dataset profile: Vulnerable datasets containing missed..."
+    },
+    {
+      "passage_id": "p_gptscan_5",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "hard_scheduling_rule",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Static confirmation requires a compilable project and compiler-generated analysis artifacts."
+      ],
+      "relation_to_owner": "owner_ineligible",
+      "evidence_basis": "reproducible_issue",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Seventeen Top200 projects could not be compiled with external comparator; for them, static confirmation could not run and affected vulnerability types were marked as not detected.",
+      "limitations_text": "Hard requirement: if compilation fails, the static-confirmation stage cannot be applied.",
+      "source_excerpt": "Relation: hard scheduling rule | Scenario: Static confirmation requires a compilable project and compiler-generated analysis artifacts. | ToolRank tools: gptscan | Tasks: logic vulnerability detection | Datasets: Top200 | Dataset profile: Top200 includes a subset of projects that do not compile under external compar..."
+    },
+    {
+      "passage_id": "p_gptscan_6",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Two-stage GPT matching plus static-analysis confirmation."
+      ],
+      "relation_to_owner": "evidence_gap",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator reduces raw candidate functions from 647 to 221 and filters out 65.84% of the false-positive cases on Web3Bugs.",
+      "limitations_text": "This is an intermediate pipeline effect and not the final end-to-end accuracy figure.",
+      "source_excerpt": "Relation: tool combination | Scenario: Two-stage GPT matching plus static-analysis confirmation. | ToolRank tools: gptscan | Tasks: Approval Not Cleared, Risky First Deposit, Price Manipulation by AMM, Price Manipulation by Buying Tokens, Vote Manipulation by Flashloan, Front Running, Wrong Interest Rate Order, Wron..."
+    },
+    {
+      "passage_id": "p_gptscan_7",
+      "source_id": "gptscan",
+      "owner_tool": "gptscan",
+      "counterpart_tool_ids": [],
+      "category": "front_running",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Discovery of previously missed vulnerabilities in audited projects."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "GPTScan identified 9 new vulnerabilities missed by human auditors: 5 Risky First Deposit, 3 Price Manipulation by AMM, and 1 Front Running.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Discovery of previously missed vulnerabilities in audited projects. | ToolRank tools: gptscan | Tasks: front_running, Risky First Deposit, Price Manipulation by AMM, Front Running | Datasets: Web3Bugs | Dataset profile: Code4rena-audited projects where some vulnerabilities were..."
+    },
+    {
+      "passage_id": "p_heterogeneous_csg_2",
+      "source_id": "heterogeneous_csg",
+      "owner_tool": "smartcheck",
+      "counterpart_tool_ids": [
+        "oyente",
+        "mythril",
+        "securify",
+        "slither"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Comparison against traditional source-code and bytecode vulnerability detectors",
+        "scale:medium"
+      ],
+      "relation_to_owner": "owner_weaker",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The proposed method outperforms all traditional tools across the reported metrics. Among traditional tools, external comparator is the strongest baseline, while bytecode-oriente...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Comparison against traditional source-code and bytecode vulnerability detectors | ToolRank tools: smartcheck, oyente, mythril, securify, slither | Tasks: reentrancy, access_control, bad_randomness, denial_of_service, Reentrancy, Block Info Dependency, Transaction State De..."
+    },
+    {
+      "passage_id": "p_heterogeneous_csg_3",
+      "source_id": "heterogeneous_csg",
+      "owner_tool": "smartcheck",
+      "counterpart_tool_ids": [
+        "oyente",
+        "mythril",
+        "securify",
+        "slither"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Runtime and resource comparison on the reentrancy-only subset",
+        "scale:medium"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator is the fastest traditional tool and uses the least CPU memory among traditional tools; the proposed method runs in 0.84 s and uses 650.83 MB VRAM, remaining...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: Runtime and resource comparison on the reentrancy-only subset | ToolRank tools: smartcheck, oyente, mythril, securify, slither | Tasks: reentrancy, Reentrancy | Datasets: Reentrancy-only sub-dataset | Dataset profile: Subset filtered from the evaluation corpus to include r..."
+    },
+    {
+      "passage_id": "p_heterogeneous_csg_4",
+      "source_id": "heterogeneous_csg",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [
+        "mythril",
+        "smartcheck",
+        "securify",
+        "slither"
+      ],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Benchmark execution across source-code and bytecode-only tools",
+        "scale:medium"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The paper compiled Solidity contracts to bytecode specifically to satisfy Oyente, external comparator, and Mythril, while Smartcheck, Securify, and Slither were run on source code.",
+      "limitations_text": "This is an input-format constraint, not a claim about detection quality.",
+      "source_excerpt": "Relation: compatibility constraint | Scenario: Benchmark execution across source-code and bytecode-only tools | ToolRank tools: oyente, mythril, smartcheck, securify, slither | Datasets: Manually verified SmartBug subset | Dataset profile: Source-code benchmark, with bytecode synthesized only for tools that require..."
+    },
+    {
+      "passage_id": "p_heterogeneous_csg_6",
+      "source_id": "heterogeneous_csg",
+      "owner_tool": "securify",
+      "counterpart_tool_ids": [],
+      "category": "bad_randomness",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Coverage limitations of external comparator in the traditional-tool benchmark",
+        "scale:medium"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator reports reentrancy results, but no block-info-dependency, transaction-state-dependency, or nested-call results in Table 4.",
+      "limitations_text": "external comparator is only applicable to the subset of tasks for which the paper reports results.",
+      "source_excerpt": "Relation: exclusion or applicability | Scenario: Coverage limitations of external comparator in the traditional-tool benchmark | ToolRank tools: securify | Tasks: bad_randomness, access_control, denial_of_service, Block Info Dependency, Transaction State Dependency, Nested Call | Datasets: Manually verified SmartBug..."
+    },
+    {
+      "passage_id": "p_heterogeneous_csg_7",
+      "source_id": "heterogeneous_csg",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Coverage limitations of external comparator and external comparator in the traditional-tool benchmark",
+        "scale:medium"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator and external comparator do not report transaction-state-dependency results; external comparator also does not report nested-call results.",
+      "limitations_text": "Only the tasks with reported table entries are eligible for comparison.",
+      "source_excerpt": "Relation: exclusion or applicability | Scenario: Coverage limitations of external comparator and external comparator in the traditional-tool benchmark | ToolRank tools: oyente | Tasks: access_control, denial_of_service, Transaction State Dependency, Nested Call | Datasets: Manually verified SmartBug subset | Dataset..."
+    },
+    {
+      "passage_id": "p_mando_hgt_0",
+      "source_id": "mando_hgt",
+      "owner_tool": "mando-hgt",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Source-code and bytecode contract-level detection.",
+        "scale:medium"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator-HGT is the best reported method at contract level; the paper reports F1 gains of 0.74%-22.56% over learning-based baseexternal comparators and 18.18%-76.89%...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Source-code and bytecode contract-level detection. | ToolRank tools: mando-hgt | Tasks: access_control, arithmetic, denial_of_service, front_running, reentrancy, time_manipulation, unchecked_low_level_calls, contract-level vulnerability detection | Datasets: SmartBugs Cur..."
+    },
+    {
+      "passage_id": "p_mando_hgt_1",
+      "source_id": "mando_hgt",
+      "owner_tool": "mando-hgt",
+      "counterpart_tool_ids": [
+        "slither",
+        "mythril",
+        "manticore",
+        "smartcheck",
+        "oyente"
+      ],
+      "category": "access_control",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Source-code external comparator-level detection and localization.",
+        "scale:medium"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator-HGT outperforms all compared conventional tools and baseexternal comparator GNNs at external comparator level; reported Buggy-F1 reaches 89.46%-95.04% depend...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Source-code external comparator-level detection and localization. | ToolRank tools: mando-hgt, slither, mythril, manticore, smartcheck, oyente | Tasks: access_control, arithmetic, denial_of_service, front_running, reentrancy, time_manipulation, unchecked_low_level_calls,..."
+    },
+    {
+      "passage_id": "p_mando_hgt_2",
+      "source_id": "mando_hgt",
+      "owner_tool": "mando-hgt",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Input-modality and granularity scope."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "MANDO-HGT supports both source code and bytecode for contract-level detection; when source code is available, it also localizes vulnerable lines.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Input-modality and granularity scope. | ToolRank tools: mando-hgt | Tasks: contract-level vulnerability detection, fine-grained line-level vulnerability detection | Datasets: SmartBugs Curated, SolidiFI-Benchmark, SmartBugs Wild | Dataset profile: Framework scope across the eva..."
+    },
+    {
+      "passage_id": "p_mando_hgt_3",
+      "source_id": "mando_hgt",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "hard_scheduling_rule",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Preprocessing and graph-construction failure."
+      ],
+      "relation_to_owner": "owner_ineligible",
+      "evidence_basis": "reproducible_issue",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The paper reports that some contracts could not be processed because older Solidity versions are unsupported by the compiler versions used by Slither/external comparator, and op...",
+      "limitations_text": "Applies to contracts outside the supported compiler/bytecode envelope; this is a hard processing failure rather than...",
+      "source_excerpt": "Relation: hard scheduling rule | Scenario: Preprocessing and graph-construction failure. | ToolRank tools: slither | Tasks: graph construction preprocessing | Datasets: SmartBugs Curated, SolidiFI-Benchmark, SmartBugs Wild | Dataset profile: Some contracts in the evaluation corpora cannot be parsed into CFG/CG repre..."
+    },
+    {
+      "passage_id": "p_mando_hgt_4",
+      "source_id": "mando_hgt",
+      "owner_tool": "mando-hgt",
+      "counterpart_tool_ids": [],
+      "category": "access_control",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Case-study interpretation of false positives and false negatives.",
+        "scale:small"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator explains several MANDO-HGT mistakes: false positives arise when clean EXPRESSION nodes resemble buggy front-running or reentrancy patterns, while false negat...",
+      "limitations_text": "Case-study evidence is illustrative and does not quantify a global error rate.",
+      "source_excerpt": "Relation: failure mode | Scenario: Case-study interpretation of false positives and false negatives. | ToolRank tools: mando-hgt | Tasks: access_control, arithmetic, front_running, reentrancy, fine-grained line-level vulnerability detection | Datasets: Mixed dataset | Dataset profile: Selected source-code cases from..."
+    },
+    {
+      "passage_id": "p_multitagging_9",
+      "source_id": "multitagging",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "mythril",
+        "solhint"
+      ],
+      "category": "unchecked_low_level_calls",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Unchecked Return Values detection on the common subset"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Slither and Solhint detected more Unchecked Return Values positives than Mythril, but all three tools produced substantial false positives.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Unchecked Return Values detection on the common subset | ToolRank tools: mythril, slither, solhint | Tasks: unchecked_low_level_calls | Datasets: Study Dataset (Total) | Dataset profile: 645 common samples across seven benchmark datasets after fairness filtering | Metric..."
+    },
+    {
+      "passage_id": "p_multitagging_10",
+      "source_id": "multitagging",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "maian",
+        "mythril",
+        "solhint"
+      ],
+      "category": "denial_of_service",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:DoS detection on the common subset"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "DoS was difficult for all tools; Slither had the best recall, while MAIAN had almost no sensitivity and all tools exhibited low precision.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: DoS detection on the common subset | ToolRank tools: maian, mythril, slither, solhint | Tasks: denial_of_service | Datasets: Study Dataset (Total) | Dataset profile: 645 common samples across seven benchmark datasets after fairness filtering | Metric basis: precision/recall tr..."
+    },
+    {
+      "passage_id": "p_multitagging_12",
+      "source_id": "multitagging",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "mythril",
+        "solhint"
+      ],
+      "category": "time_manipulation",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Time Manipulation detection on the common subset"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Slither and Solhint matched near-complete recall with better precision than Mythril, but all three still produced many false positives.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Time Manipulation detection on the common subset | ToolRank tools: mythril, slither, solhint | Tasks: time_manipulation | Datasets: Study Dataset (Total) | Dataset profile: 645 common samples across seven benchmark datasets after fairness filtering | Metric basis: confusi..."
+    },
+    {
+      "passage_id": "p_sailfish_1",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "securify",
+        "mythril",
+        "oyente",
+        "vandal"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:static detection of SI bugs in Solidity contracts"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "SAILFISH extends SI detection beyond single-function reentrancy by handling cross-function, delegate-based, and create-based executions and by unifying stale-read and destructiv...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: static detection of SI bugs in Solidity contracts | ToolRank tools: sailfish, securify, mythril, oyente, vandal | Tasks: reentrancy, front_running, state-inconsistency detection, reentrancy detection, TOD detection | Datasets: Etherscan full dataset, manual ground-truth sample..."
+    },
+    {
+      "passage_id": "p_sailfish_2",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "securify",
+        "vandal",
+        "mythril",
+        "oyente"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:bug detection on sampled real-world contracts"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "SAILFISH achieved 26 TP / 11 FP / 0 FN on reentrancy and 110 TP / 59 FP / 0 FN on TOD, matching all manual positives with the lowest false-positive count among the compared tools.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: bug detection on sampled real-world contracts | ToolRank tools: sailfish, securify, vandal, mythril, oyente | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Manual ground-truth sample | Dataset profile: 750 randomly sampled contracts up..."
+    },
+    {
+      "passage_id": "p_sailfish_3",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "securify",
+        "vandal",
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:warning-volume comparison over the full Etherscan corpus"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "On the full corpus, SAILFISH reported 2.40% reentrancy warnings and 8.74% TOD warnings, lower than SECURIFY, MYTHRIL, and VANDAL while still covering both bug classes.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: warning-volume comparison over the full Etherscan corpus | ToolRank tools: sailfish, securify, vandal, mythril | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Etherscan full dataset | Dataset profile: 89,853 deduplicated Solidity contracts..."
+    },
+    {
+      "passage_id": "p_sailfish_4",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "securify",
+        "mythril",
+        "oyente"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:static-analysis throughput over small, medium, large, and full datasets"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "SAILFISH averaged 30.79 seconds on the full corpus, about 6x faster than SECURIFY, 31x faster than MYTHRIL, and 6x faster than OYENTE.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: static-analysis throughput over small, medium, large, and full datasets | ToolRank tools: sailfish, securify, mythril, oyente | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Etherscan full dataset | Dataset profile: 89,853 deduplicated S..."
+    },
+    {
+      "passage_id": "p_sailfish_5",
+      "source_id": "sailfish",
+      "owner_tool": "vandal",
+      "counterpart_tool_ids": [
+        "sailfish"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:runtime trade-off between the fastest baseline and SAILFISH"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VANDAL was marginally faster than SAILFISH on the full corpus (30.68s vs 30.79s), but it produced far more warnings and false positives.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: runtime trade-off between the fastest baseline and SAILFISH | ToolRank tools: sailfish, vandal | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Etherscan full dataset | Dataset profile: 89,853 deduplicated Solidity contracts from Ethersca..."
+    },
+    {
+      "passage_id": "p_sailfish_6",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "mythril"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:read-after-call reentrancy screening"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "MYTHRIL's read-after-call policy is overly conservative and produces many false positives; it reported 334 false positives on the manual sample and timed out on 66.84% of the fu...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: read-after-call reentrancy screening | ToolRank tools: sailfish, mythril | Tasks: reentrancy, reentrancy detection | Datasets: Manual ground-truth sample, Etherscan full dataset | Dataset profile: Manual ground-truth sample for precision analysis plus full-corpus timeout stati..."
+    },
+    {
+      "passage_id": "p_sailfish_7",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "vandal"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:pattern-based reentrancy detection"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "VANDAL flags many benign cases as vulnerable, yielding 626 false positives on the manual sample and a 52.27% reentrancy warning rate on the full corpus.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: pattern-based reentrancy detection | ToolRank tools: sailfish, vandal | Tasks: reentrancy, reentrancy detection | Datasets: Manual ground-truth sample, Etherscan full dataset | Dataset profile: Manual ground-truth sample for precision analysis plus full-corpus warning statisti..."
+    },
+    {
+      "passage_id": "p_sailfish_8",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [
+        "securify"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:NW-style reentrancy and TOD signatures"
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "SECURIFY over-approximates both reentrancy and TOD, with 163 reentrancy false positives and 244 TOD false positives on the manual sample, plus 7.10% and 21.37% warning rates on...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: fp precision risk | Scenario: NW-style reentrancy and TOD signatures | ToolRank tools: sailfish, securify | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Manual ground-truth sample, Etherscan full dataset | Dataset profile: Manual ground-truth sample for precision analys..."
+    },
+    {
+      "passage_id": "p_sailfish_9",
+      "source_id": "sailfish",
+      "owner_tool": "oyente",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "hard_scheduling_rule",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:tool execution on post-0.4.19 Solidity contracts"
+      ],
+      "relation_to_owner": "owner_ineligible",
+      "evidence_basis": "reproducible_issue",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "OYENTE cannot analyze contracts compiled with Solidity newer than 0.4.19, leading to 62,660 errors on the full corpus and preventing meaningful comparison on many medium and lar...",
+      "limitations_text": "Solidity versions above 0.4.19 are unsupported",
+      "source_excerpt": "Relation: hard scheduling rule | Scenario: tool execution on post-0.4.19 Solidity contracts | ToolRank tools: oyente | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Etherscan full dataset | Dataset profile: 89,853 deduplicated Solidity contracts from Etherscan. | Metric basis: ful..."
+    },
+    {
+      "passage_id": "p_sailfish_10",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [],
+      "category": "__GLOBAL__",
+      "knowledge_kind": "failure_mode",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:source-code dataset construction"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "The evaluation excludes 2,068 contracts that require very old Solidity versions (<0.3.x) or were written in external comparator, leaving 89,853 Solidity contracts for analysis.",
+      "limitations_text": "very old Solidity and external comparator contracts were not part of the evaluated corpus",
+      "source_excerpt": "Relation: exclusion or applicability | Scenario: source-code dataset construction | ToolRank tools: sailfish | Datasets: Etherscan crawl | Dataset profile: 91,921 crawled contracts reduced to 89,853 deduplicated Solidity contracts after exclusions. | Metric basis: dataset curation before evaluation | Scope: applicab..."
+    },
+    {
+      "passage_id": "p_sailfish_11",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:external comparator/external comparator ablation on warning-producing contracts"
+      ],
+      "relation_to_owner": "evidence_gap",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Adding refinement reduces warnings, and value summary prunes more than havoc alone: reentrancy warnings drop from 2,436 to 2,076 and TOD warnings from 10,560 to 7,555 when switc...",
+      "limitations_text": "contracts that reached the external comparator after the external comparator emitted warnings",
+      "source_excerpt": "Relation: tool combination | Scenario: external comparator/external comparator ablation on warning-producing contracts | ToolRank tools: sailfish | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Warning-producing subset | Dataset profile: 2,000 sampled medium/large contracts drawn..."
+    },
+    {
+      "passage_id": "p_sailfish_12",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:refiner efficiency on medium/large warned contracts"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Classic external comparator timed out on 21.50% of the sampled contracts, whereas value summary completed substantially faster on the remaining cases and produced a favorable sp...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: refiner efficiency on medium/large warned contracts | ToolRank tools: sailfish | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: Warning-producing subset | Dataset profile: 2,000 sampled medium/large contracts drawn from the warning-produc..."
+    },
+    {
+      "passage_id": "p_sailfish_13",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:zero-day vulnerability discovery"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Manual review confirmed 47 exploitable vulnerabilities among 195 inspected SAILFISH-only candidates, including 11 Ether-draining bugs and 36 metadata-corrupting bugs.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: zero-day vulnerability discovery | ToolRank tools: sailfish | Tasks: reentrancy, front_running, reentrancy detection, TOD detection | Datasets: SAILFISH-only candidate set | Dataset profile: 88 reentrancy-only and 107 TOD-only contracts manually selected from 401 reentrancy-onl..."
+    },
+    {
+      "passage_id": "p_sailfish_14",
+      "source_id": "sailfish",
+      "owner_tool": "sailfish",
+      "counterpart_tool_ids": [],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:reentrancy detection on the six-contract comparison set"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "On the six contracts with available sources, SAILFISH correctly detected TheDAO and raised one false alarm on CCRB; external comparator reported one true vulnerability and five...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: reentrancy detection on the six-contract comparison set | ToolRank tools: sailfish | Tasks: reentrancy, reentrancy detection | Datasets: external comparator released dataset | Dataset profile: Six source-available contracts from external comparator's released dataset; fou..."
+    },
+    {
+      "passage_id": "p_sch_hunter_0",
+      "source_id": "sch_hunter",
+      "owner_tool": "honeybadger",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Dataset I honeypot detection effectiveness",
+        "scale:small"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "HoneyBadger is slightly better on the shared eight techniques: average precision 95.35% vs 95.04%, recall 93.07% vs 92.21%, and F1 0.9390 vs 0.9339, while external comparator re...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Dataset I honeypot detection effectiveness | ToolRank tools: honeybadger | Tasks: Balance-Disorder, Inheritance-Disorder, Skip-Empty-String-Literal, Unexecute-Call, Uninitialized-Structures, Type-Deduction-Overflow, Hidden-State-Update, Hidden-Transfer, Straw-Man-Contract..."
+    },
+    {
+      "passage_id": "p_sch_hunter_1",
+      "source_id": "sch_hunter",
+      "owner_tool": "honeybadger",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Technique-coverage comparison for the detector set.",
+        "scale:small"
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator supports 10 detector types versus HoneyBadger's 8, adding Unexecute-Call and Map-Key-Encoding-Trick.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: capability scope | Scenario: Technique-coverage comparison for the detector set. | ToolRank tools: honeybadger | Tasks: Balance-Disorder, Inheritance-Disorder, Skip-Empty-String-Literal, Unexecute-Call, Uninitialized-Structures, Type-Deduction-Overflow, Hidden-State-Update, Hidden-Transfer, Straw-Man-Contr..."
+    },
+    {
+      "passage_id": "p_sch_hunter_2",
+      "source_id": "sch_hunter",
+      "owner_tool": "honeybadger",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Coverage comparison against HoneyBadger on short honeypots and long contracts."
+      ],
+      "relation_to_owner": "supports_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator achieves higher average coverage than HoneyBadger on both datasets: 94.71% vs 89.92% on Dataset I and 78.63% vs 61.22% on Dataset II.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: Coverage comparison against HoneyBadger on short honeypots and long contracts. | ToolRank tools: honeybadger | Tasks: code coverage improvement for smart contract honeypot detection | Datasets: Smart Contract Honeypot Dataset (Dataset I), Long Smart Contract Dataset (Dataset..."
+    },
+    {
+      "passage_id": "p_sch_hunter_3",
+      "source_id": "sch_hunter",
+      "owner_tool": "honeybadger",
+      "counterpart_tool_ids": [],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "fp_precision_risk",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Legitimate time-lock logic using block.timestamp or block.number.",
+        "scale:small"
+      ],
+      "relation_to_owner": "opposes_owner",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "external comparator's Hidden-State-Update precision is 90.60% versus HoneyBadger's 94.73%; the paper attributes the extra false positives to conservative treatment of block.time...",
+      "limitations_text": "Legitimate temporal guards are especially prone to being flagged.",
+      "source_excerpt": "Relation: fp precision risk | Scenario: Legitimate time-lock logic using block.timestamp or block.number. | ToolRank tools: honeybadger | Tasks: Hidden-State-Update, smart contract honeypot detection | Datasets: Smart Contract Honeypot Dataset (Dataset I) | Dataset profile: 631 honeypots across 10 honeypot technique..."
+    },
+    {
+      "passage_id": "p_systematic_review_0",
+      "source_id": "systematic_review",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "solhint",
+        "mythril",
+        "oyente",
+        "osiris",
+        "honeybadger"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Tool runtime comparison on SB Curated under the framework test environment."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Among the whitelisted tools, Slither and Solhint were among the fastest; Mythril was the slowest by a wide margin. The paper notes that the non-whitelist external comparator was...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: performance comparison | Scenario: Tool runtime comparison on SB Curated under the framework test environment. | ToolRank tools: slither, smartcheck, solhint, mythril, oyente, osiris, honeybadger | Tasks: runtime testing | Datasets: SB Curated | Dataset profile: 112 smart contracts curated by Durieux et al..."
+    },
+    {
+      "passage_id": "p_systematic_review_1",
+      "source_id": "systematic_review",
+      "owner_tool": "smartcheck",
+      "counterpart_tool_ids": [
+        "slither",
+        "solhint",
+        "mythril",
+        "oyente",
+        "osiris",
+        "honeybadger"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Multi-core optimization test across thread counts."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Most tools showed limited thread sensitivity. SmartCheck and Solhint benefited more from multithreading, whereas Slither sometimes regressed slightly when more cores were used.",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: Multi-core optimization test across thread counts. | ToolRank tools: slither, smartcheck, solhint, mythril, oyente, osiris, honeybadger | Tasks: parallel runtime scaling | Datasets: SB Curated | Dataset profile: Same benchmark and runtime environment as the main evaluation..."
+    },
+    {
+      "passage_id": "p_systematic_review_2",
+      "source_id": "systematic_review",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "solhint",
+        "mythril",
+        "oyente",
+        "osiris",
+        "honeybadger"
+      ],
+      "category": "unknown_unknowns",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Memory usage test for vulnerability detectors."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Mythril and HoneyBadger had the largest memory footprints, while Solhint, SmartCheck, and Slither were comparatively lightweight. The paper also reports that some tools' memory...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: efficiency comparison | Scenario: Memory usage test for vulnerability detectors. | ToolRank tools: slither, smartcheck, solhint, mythril, oyente, osiris, honeybadger | Tasks: memory profiling | Dataset profile: Memory profiling over hundreds of contracts spanning withdrawal, game, and gambling scenarios; m..."
+    },
+    {
+      "passage_id": "p_systematic_review_3",
+      "source_id": "systematic_review",
+      "owner_tool": "slither",
+      "counterpart_tool_ids": [
+        "smartcheck",
+        "solhint",
+        "mythril",
+        "oyente",
+        "osiris"
+      ],
+      "category": "reentrancy",
+      "knowledge_kind": "category_capability",
+      "action_scope": [
+        "SINGLE_TOOL",
+        "PLAN_COMPOSITION",
+        "CONTINUE_HEDGE"
+      ],
+      "applicability_tags": [
+        "scene:Coverage evaluation on SB Curated."
+      ],
+      "relation_to_owner": "owner_stronger",
+      "evidence_basis": "benchmark_result",
+      "source_reliability": "peer_reviewed",
+      "claim_text": "Slither had the broadest coverage overall. SmartCheck fully covered access control and unchecked low-level calls, and Slither/Solhint covered all time-manipulation cases. Oyente...",
+      "limitations_text": "",
+      "source_excerpt": "Relation: coverage comparison | Scenario: Coverage evaluation on SB Curated. | ToolRank tools: slither, smartcheck, solhint, mythril, oyente, osiris | Tasks: reentrancy, access_control, arithmetic, unchecked_low_level_calls, time_manipulation, denial_of_service, vulnerability coverage evaluation | Datasets: SB Curat..."
+    }
+  ]
+}

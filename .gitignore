@@ -1,0 +1,56 @@
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs and package/build output
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Local secrets and machine-specific config
+.env
+*.env
+!.env.example
+.mineru_token
+.claude/
+
+# OS/editor noise
+.DS_Store
+.vscode/
+
+# ToolRank generated output and local research artifacts
+out/
+LAKES_out/
+Paper.pdf/
+MinerU/
+experiments_*/
+docs/
+examples/
+scripts/
+tests/
+docker/vendor/gptscan/src/output.json
+docker/vendor/gptscan/src/output.json.metadata.json
+docker/vendor/securify2/out/
+
+# Private/local knowledge bases (kept out of the GitHub release)
+toolcards/*passage*.json
+!toolcards/passage_store.json
+toolcards/vector_index/*
+!toolcards/vector_index/index.json
+
+# Local handoff/session notes
+HANDOFF_*.md
+SESSION_HANDOFF.md
+
+# Backups and logs
+*.bak
+*.bak.*
+*.log
+*.tmp
