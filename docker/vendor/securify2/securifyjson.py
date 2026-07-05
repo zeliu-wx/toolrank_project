@@ -167,7 +167,7 @@ def run_securify_docker(
         cmd.append("-t")
     if platform:
         cmd += ["--platform", platform]
-    cmd += ["-v", f"{contract_dir}:/share", image, f"/share/{contract_file}"]
+    cmd += ["-v", f"{contract_dir}:/share", image, "--interpreter", f"/share/{contract_file}"]
     cmd_str = " ".join(cmd)
 
     if tty:

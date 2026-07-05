@@ -5,7 +5,7 @@ set -euo pipefail
 # SmartBugs 与此内部 daemon 通信，工具容器的临时目录挂载在同一文件系统命名空间，
 # 规避 DooD（挂宿主 socket）下宿主 daemon 看不到容器内临时目录的路径不匹配问题。
 if ! docker info >/dev/null 2>&1; then
-  dockerd >/var/log/dockerd.log 2>&1 &
+  dockerd --iptables=false --bridge=none --ip-forward=false --ip-masq=false >/var/log/dockerd.log 2>&1 &
   for _ in $(seq 1 60); do
     docker info >/dev/null 2>&1 && break
     sleep 1

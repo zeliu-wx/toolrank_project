@@ -386,6 +386,25 @@ def _solc_lower_bound(contract_path: Path) -> Optional[str]:
     return ".".join(str(part) for part in version) if version else None
 
 
+def _write_skip_report(out_dir: Path, tool_id: str, message: str) -> int:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "errors": [],
+                "fails": [],
+                "findings": [],
+                "infos": [message],
+                "parser": {"tool": tool_id, "status": "skipped"},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"[skip] {tool_id}: {message}", file=sys.stderr)
+    return 0
+
+
 def _run_solc_select(contract_path: Path, tool_label: str) -> None:
     version = _solc_lower_bound(contract_path)
     if not version:
@@ -484,12 +503,26 @@ def _run_securify2(contract_path: Path, out_dir: Path) -> int:
     if not SECURIFY2_RUNNER.exists():
         print(f"[warn] securify2 runner not found: {SECURIFY2_RUNNER}", file=sys.stderr)
         return 1
-    version = _solc_lower_bound(contract_path) or SECURIFY2_DEFAULT_SOLC
+    version_tuple = _max_lower_bound_version(contract_path)
+    if version_tuple and version_tuple < (0, 5, 0):
+        return _write_skip_report(
+            out_dir,
+            "securify2",
+            f"securify2 supports Solidity ASTs from 0.5.0; detected lower bound {'.'.join(str(part) for part in version_tuple)}",
+        )
+    version = ".".join(str(part) for part in version_tuple) if version_tuple else SECURIFY2_DEFAULT_SOLC
     image = SECURIFY2_IMAGE_TEMPLATE.format(version=version)
     if image not in _SECURIFY2_IMAGE_CACHE:
         dockerfile = SECURIFY2_RUNNER.parent / "Dockerfile"
         if dockerfile.exists():
-            rc = _stream_process(["docker", "build", "--platform", SECURIFY2_PLATFORM, "--build-arg", f"SOLC={version}", "-t", image, "."], cwd=SECURIFY2_RUNNER.parent)
+            build_env = os.environ.copy()
+            build_env["DOCKER_BUILDKIT"] = "1"
+            build_env["DOCKER_DEFAULT_PLATFORM"] = SECURIFY2_PLATFORM
+            rc = _stream_process(
+                ["docker", "build", "--platform", SECURIFY2_PLATFORM, "--build-arg", f"SOLC={version}", "-t", image, "."],
+                cwd=SECURIFY2_RUNNER.parent,
+                env=build_env,
+            )
             if rc != 0:
                 return rc
         _SECURIFY2_IMAGE_CACHE.add(image)

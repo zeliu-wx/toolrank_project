@@ -437,12 +437,17 @@ def _run_one_contract(
         contract_key=contract_key,
         bytecode_kind=bytecode_kind,
     )
+    findings_count = len(report.get("findings") or [])
+    if rc != 0 and findings_count:
+        report["infos"].append(f"smartian exited with code {rc} after producing findings")
     (out_dir / "result.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(
-        f"[smartian] findings={len(report.get('findings') or [])} "
+        f"[smartian] findings={findings_count} "
         f"errors={len(report.get('errors') or [])} out={out_dir / 'result.json'}"
     )
+    if rc != 0 and findings_count:
+        return 0
     return rc
 
 

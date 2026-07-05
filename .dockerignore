@@ -1,5 +1,7 @@
 .git/
 .gitignore
+.dockerignore
+Dockerfile
 .DS_Store
 .claude/
 .pytest_cache/
