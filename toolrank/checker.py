@@ -462,7 +462,7 @@ def check_decision(
     packet: Step1EvidencePacket,
     matrix: ActionByEvidenceMatrix,
 ) -> CheckerVerdict:
-    """对 CEGO 决策证书做多类合法性审计。"""
+    """Audit a CEGO decision certificate across legality and coverage rules."""
     action_failures = _check_action_legality(certificate, packet, matrix)
     evidence_failures = _check_evidence_legality(certificate, matrix)
     completeness_failures = _check_evidence_completeness(certificate, matrix)

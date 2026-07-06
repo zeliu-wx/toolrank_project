@@ -1055,7 +1055,7 @@ def build_action_evidence_matrix(
     retriever: PassageRetriever | None = None,
     rag_top_k: int = 3,
 ) -> ActionByEvidenceMatrix:
-    """顶层入口。枚举动作 → 向量检索 → 生成证据卡 → 填充证据槽 → 组装矩阵。"""
+    """Top-level entry point: enumerate actions, retrieve passages, build evidence cards, fill slots, and assemble the matrix."""
     table = _tool_table_by_tool(packet)
     feasible = _feasible_tools(packet)
     actions: list[CandidateAction] = []

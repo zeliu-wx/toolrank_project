@@ -1285,7 +1285,7 @@
       "source_id": "2.md",
       "publication_date": null,
       "dataset_profile": {
-        "dataset_name": "自建基准数据集",
+        "dataset_name": "Custom Benchmark Dataset",
         "solc": [
           "0.4.x",
           "0.5.x",
@@ -1296,8 +1296,8 @@
         "contract_count_total": 110,
         "realism_level": "Real-world",
         "domain_tags": [
-          "智能合约",
-          "漏洞检测"
+          "smart contracts",
+          "vulnerability detection"
         ],
         "loc_profile": {
           "loc_bin_counts_by_solc": {
@@ -1407,7 +1407,7 @@
             "execution_time_avg": 47.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "ConFuzzius",
@@ -1418,7 +1418,7 @@
             "execution_time_avg": 1089.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Conkas",
@@ -1429,7 +1429,7 @@
             "execution_time_avg": 2880.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Maian",
@@ -1440,7 +1440,7 @@
             "execution_time_avg": 57.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Manticore",
@@ -1451,7 +1451,7 @@
             "execution_time_avg": 662.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Mythril",
@@ -1462,7 +1462,7 @@
             "execution_time_avg": 257.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Osiris",
@@ -1473,7 +1473,7 @@
             "execution_time_avg": 92.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Oyente",
@@ -1484,7 +1484,7 @@
             "execution_time_avg": 4.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Securify",
@@ -1495,7 +1495,7 @@
             "execution_time_avg": 27.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "sFuzz",
@@ -1506,7 +1506,7 @@
             "execution_time_avg": 1080.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Slither",
@@ -1517,7 +1517,7 @@
             "execution_time_avg": 1.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "Smartcheck",
@@ -1528,7 +1528,7 @@
             "execution_time_avg": 3.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         },
         {
           "tool_name": "solhint",
@@ -1539,7 +1539,7 @@
             "execution_time_avg": 1.0
           },
           "vulnerability_scores": null,
-          "evidence_source": "表 5, 表 6"
+          "evidence_source": "Table 5, Table 6"
         }
       ]
     },

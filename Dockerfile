@@ -8,9 +8,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LAKES_SMARTBUGS_DIR=/opt/smartbugs \
     LAKES_DOCKER_PLATFORM=linux/amd64
 
-# 系统依赖：git（克隆 smartbugs）、完整 Docker 引擎（Docker-in-Docker）、构建工具。
-# DinD 必需：dockerd + containerd + iptables（容器网络）。SmartBugs 与镜像内部
-# 的 dockerd 通信，临时目录挂载在同一文件系统命名空间内，规避 DooD 路径不匹配。
+# System dependencies: git, Docker-in-Docker support, and build tools.
+# DinD requires dockerd, containerd, and iptables. SmartBugs talks to the
+# daemon inside this image so temporary tool paths stay in one filesystem namespace.
 RUN set -eux; \
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
         sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
@@ -39,17 +39,17 @@ RUN set -eux; \
         docker-ce docker-ce-cli containerd.io; \
     rm -rf /var/lib/apt/lists/*
 
-# solc-select（多版本 solc）+ 预装常用版本（smartian 用本地 solc 编译合约；
-# 其它版本运行时按需 solc-select install）
+# solc-select plus commonly used compiler versions. Smartian compiles with local solc;
+# other versions can still be installed on demand at runtime.
 RUN pip install solc-select \
     && solc-select install 0.4.25 0.4.26 0.5.12 0.5.17 0.6.12 0.8.19 0.8.30 || true
 
-# .NET 8 SDK（smartian 跑 Smartian.dll；run_smartian 的预检用 `dotnet --version` 需 SDK）
+# .NET 8 SDK for Smartian.dll and the runner preflight check.
 RUN curl --retry 5 --retry-delay 2 --retry-connrefused -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && bash /tmp/dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet \
     && rm /tmp/dotnet-install.sh
 
-# SmartBugs：克隆 + poetry 安装到系统环境
+# Clone SmartBugs and install its runtime environment with Poetry.
 RUN pip install --retries 5 --timeout 120 poetry \
     && git config --global http.version HTTP/1.1 \
     && for attempt in 1 2 3 4 5; do \
@@ -65,10 +65,10 @@ RUN pip install --retries 5 --timeout 120 poetry \
 
 RUN python -c "from pathlib import Path; p=Path('/opt/smartbugs/sb/docker.py'); s=p.read_text(); old='client().images.pull(image)'; new='client().images.pull(image, platform=os.getenv(\"LAKES_DOCKER_PLATFORM\") or os.getenv(\"DOCKER_DEFAULT_PLATFORM\") or \"linux/amd64\")'; p.write_text(s.replace(old, new))"
 
-# 叠加定制工具配置（mando-hgt / vulhunter 等）
+# Overlay custom tool configs such as mando-hgt and vulhunter.
 COPY docker/smartbugs-tools/ /opt/smartbugs/tools/
 
-# LAKES 本体
+# LAKES package.
 WORKDIR /work
 COPY . /work
 RUN set -eux; \
@@ -85,14 +85,14 @@ RUN set -eux; \
     solcx_install 0.5.17; \
     solcx_install 0.8.30
 
-# Phase 2 特例工具：sailfish 瘦包装脚本（纯标准库；公开镜像 holmessherlock/sailfish
-# 与 solc 均在运行时按需拉取/下载）
+# Phase 2 special tool: sailfish. The thin wrapper uses only the standard library;
+# its public image and solc are pulled or downloaded on demand at runtime.
 ENV LAKES_SAILFISH_RUNNER=/work/docker/runners/run_sailfish.py
 
-# Phase 2 特例工具：gptscan（按 runner 的 _run_gptscan 逻辑：用自带 venv 跑 src/main.py，
-# Java 解析 src/jars，LLM 端点由运行时 -e 提供）。源码已随 COPY . /work 进镜像。
-# 注意：requirements-docker.txt 已剔除 Ubuntu 系统泄漏包；falcon-analyzer 为 git 依赖，
-# openai 为旧版 SDK。
+# Phase 2 special tool: gptscan. The runner executes src/main.py from the vendored
+# virtualenv, uses src/jars for Java parsing, and receives the LLM endpoint at runtime.
+# requirements-docker.txt omits host Ubuntu packages; falcon-analyzer is a git
+# dependency, and openai uses the legacy SDK.
 ENV LAKES_GPTSCAN_ROOT=/work/docker/vendor/gptscan
 RUN set -eux; \
     python -m venv /work/docker/vendor/gptscan/.venv; \
@@ -106,24 +106,23 @@ RUN set -eux; \
     }; \
     gptscan_install
 
-# Phase 2 特例工具：securify2（按 runner 的 _run_securify2 逻辑：securifyjson.py 在 DinD 内
-# 按合约 solc 版本 docker build securify:{ver} 再运行；securifyjson.py 调用 `sudo docker`，
-# 故镜像装 sudo。源码已随 COPY . /work 进镜像）
+# Phase 2 special tool: securify2. The runner builds securify:{ver} inside DinD
+# using the contract solc version, then runs securifyjson.py through Docker.
 ENV LAKES_SECURIFY2_RUNNER=/work/docker/vendor/securify2/securifyjson.py
 
-# Phase 2 特例工具：smartian（.NET 8 跑 Smartian.dll；run_smartian 用本地 solc 编译合约后
-# 模糊测试）。构建产物与瘦包装脚本已随 COPY . /work 进镜像。INVARIANT 绕开 libicu 依赖。
+# Phase 2 special tool: smartian. .NET 8 runs Smartian.dll; run_smartian compiles
+# the contract with local solc before fuzzing. INVARIANT avoids the libicu dependency.
 ENV DOTNET_ROOT=/opt/dotnet \
     PATH=/opt/dotnet:${PATH} \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
     LAKES_SMARTIAN_RUNNER=/work/docker/runners/run_smartian.py
 
-# 选一个默认 solc 版本，使裸 `solc` 可用（smartian 等的预检 `solc --version` 需要）。
-# 运行时各工具仍可 `solc-select use <ver>` 按合约覆盖。
+# Select a default solc so bare `solc` works for preflight checks.
+# Tool runners can still switch versions per contract at runtime.
 RUN solc-select use 0.5.12
 
-# Smartian.dll 在构建机上把资源（src/Agent/*.bin 等）的绝对路径焊进了二进制。
-# 用符号链接把原构建路径重定向到镜像内 vendored 副本，使写死路径在运行时可解析。
+# Smartian.dll embeds absolute resource paths from the build machine. Redirect the
+# original build path to the vendored copy so those runtime lookups resolve.
 RUN mkdir -p /Users/liuze/Downloads/QuantifyX \
     && ln -sfn /work/docker/vendor/smartian /Users/liuze/Downloads/QuantifyX/Smartian
 
@@ -133,7 +132,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     ln -sfn /opt/dotnet/dotnet /usr/local/bin/dotnet
 
-# 内部 dockerd 的镜像/层存储；可用命名卷挂载以跨运行缓存已拉取的工具镜像
+# Internal dockerd image/layer storage. A named volume can cache pulled tool images.
 VOLUME /var/lib/docker
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

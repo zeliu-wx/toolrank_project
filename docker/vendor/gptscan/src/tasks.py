@@ -433,16 +433,16 @@ def simple_cli():
     # json.dump(res, open(output_file, "w"), indent=4)
     output_json = utils.convert_output(final_result, scan_rules, cg, source_dir)
 
-    meta_data["used_time"]= time.time()-start_time  # 花费时间，单位为秒
-    meta_data["vul_before_static"] = num_true + num_false   # 静态分析前，第二次交互为yes的数量，可能有重复（A和A+B）
-    meta_data["vul_after_static"] = num_true    # 静态分析后，结果不为False的数量（之前有不需要静态分析的，现在没了）
-    meta_data["vul_after_merge"] = len(output_json["results"])  # 去重后的结果数量
+    meta_data["used_time"]= time.time()-start_time  # Runtime in seconds.
+    meta_data["vul_before_static"] = num_true + num_false   # Yes answers before static analysis; duplicates are possible.
+    meta_data["vul_after_static"] = num_true    # Non-false results after static analysis.
+    meta_data["vul_after_merge"] = len(output_json["results"])  # Deduplicated result count.
 
-    meta_data["token_sent"] = chatgpt_api.tokens_sent.value # 发送的Token数量
-    meta_data["token_received"] = chatgpt_api.tokens_received.value # 接收的Token数量
-    meta_data["token_sent_gpt4"] = chatgpt_api.tokens_sent_gpt4.value # 发送的Token数量
-    meta_data["token_received_gpt4"] = chatgpt_api.tokens_received_gpt4.value # 接收的Token数量
-    meta_data["estimated_cost"] = (meta_data["token_sent"] * global_config.SEND_PRICE) + (meta_data["token_received"] * global_config.RECEIVE_PRICE) + (meta_data["token_sent_gpt4"] * global_config.GPT4_SEND_PRICE) + (meta_data["token_received_gpt4"] * global_config.GPT4_RECEIVE_PRICE)# 预估的花费
+    meta_data["token_sent"] = chatgpt_api.tokens_sent.value # Sent token count.
+    meta_data["token_received"] = chatgpt_api.tokens_received.value # Received token count.
+    meta_data["token_sent_gpt4"] = chatgpt_api.tokens_sent_gpt4.value # Sent token count.
+    meta_data["token_received_gpt4"] = chatgpt_api.tokens_received_gpt4.value # Received token count.
+    meta_data["estimated_cost"] = (meta_data["token_sent"] * global_config.SEND_PRICE) + (meta_data["token_received"] * global_config.RECEIVE_PRICE) + (meta_data["token_sent_gpt4"] * global_config.GPT4_SEND_PRICE) + (meta_data["token_received_gpt4"] * global_config.GPT4_RECEIVE_PRICE)# Estimated cost.
 
     for metadata_key, metadata_value in meta_data.copy().items():
         if isinstance(metadata_value, set):

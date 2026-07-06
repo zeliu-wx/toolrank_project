@@ -1250,7 +1250,7 @@ def run_cego(
     w_recall: float | None = None,
     w_precision: float | None = None,
 ) -> Step2DecisionCertificate:
-    """顶层入口。构造 prompt → 调 LLM → 解析响应 → 组装证书。"""
+    """Top-level entry point: build the prompt, call the LLM, parse the response, and assemble the certificate."""
     mode = os.getenv("TOOLRANK_CEGO_MODE", "per_category").strip().lower()
     if mode == "single":
         try:

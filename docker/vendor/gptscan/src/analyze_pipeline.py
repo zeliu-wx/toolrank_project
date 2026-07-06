@@ -96,28 +96,28 @@ def ask_whether_has_vul_with_scenario_v9(src_folder: str, rules: List[dict]) -> 
     cg = CallGraph(src_folder)
     file_func_question_map = {}
     meta_data = {
-        # 所有set都会转换成整数，即set中元素个数
-        "files": 0, # 文件总数
-        "contracts": 0, # 合约总数
-        "functions": 0, # 函数总数
-        "loc": 0, # 代码总行数
-        "files_after_filter": set(), # 过滤后的文件总数
-        "files_after_step_1": set(), # 第一次提问后的文件总数
-        "files_after_step_2": set(), # 第二次提问后的文件总数
-        "files_after_static": set(), # 静态分析后的文件总数
-        "contracts_after_filter": set(), # 过滤后的合约总数
-        "contracts_after_step_1": set(), # 第一次提问后的合约总数
-        "contracts_after_step_2": set(), # 第二次提问后的合约总数
-        "contracts_after_static": set(), # 静态分析后的合约总数
-        "functions_after_filter": set(), # 过滤后的函数总数
-        "functions_after_step_1": set(), # 第一次提问后的函数总数
-        "functions_after_step_2": set(), # 第二次提问后的函数总数
-        "functions_after_static": set(), # 静态分析后的函数总数
-        "rules_loaded": len(rules), # 加载的规则总数
-        "rules_types_for_step_1": set(), # 过滤后的规则总数，也就是第一次提问用到的规则总数
-        "rules_types_for_step_2": set(), # 第二次提问用到的规则总数
-        "rules_types_for_static": set(), # 静态分析用到的规则总数
-        "rules_types_after_static": set(), # 静态分析后的有漏洞的规则总数
+        # Sets are converted to their element counts before output.
+        "files": 0, # Total files.
+        "contracts": 0, # Total contracts.
+        "functions": 0, # Total functions.
+        "loc": 0, # Total lines of code.
+        "files_after_filter": set(), # Files after filtering.
+        "files_after_step_1": set(), # Files after the first prompt.
+        "files_after_step_2": set(), # Files after the second prompt.
+        "files_after_static": set(), # Files after static analysis.
+        "contracts_after_filter": set(), # Contracts after filtering.
+        "contracts_after_step_1": set(), # Contracts after the first prompt.
+        "contracts_after_step_2": set(), # Contracts after the second prompt.
+        "contracts_after_static": set(), # Contracts after static analysis.
+        "functions_after_filter": set(), # Functions after filtering.
+        "functions_after_step_1": set(), # Functions after the first prompt.
+        "functions_after_step_2": set(), # Functions after the second prompt.
+        "functions_after_static": set(), # Functions after static analysis.
+        "rules_loaded": len(rules), # Total loaded rules.
+        "rules_types_for_step_1": set(), # Rule types used by the first prompt after filtering.
+        "rules_types_for_step_2": set(), # Rule types used by the second prompt.
+        "rules_types_for_static": set(), # Rule types used by static analysis.
+        "rules_types_after_static": set(), # Vulnerable rule types after static analysis.
     }
 
     for file in cg.files:

@@ -12,7 +12,7 @@
     "Not So Smart Contracts": 25,
     "Smart Contracts Benchmark Suite": 214,
     "BNB Benchmark": 113,
-    "自建基准数据集": 110,
+    "Custom Benchmark Dataset": 110,
     "smartbug2.0empirical": 2181
   },
   "_ranges": {
@@ -10857,7 +10857,7 @@
         "id": "0xfFFa44790462B15FEf0cB7B34b9485FbFbf84A39/0xfFFa44790462B15FEf0cB7B34b9485FbFbf84A39.sol"
       }
     ],
-    "自建基准数据集": [
+    "Custom Benchmark Dataset": [
       {
         "solc": "0.5.x",
         "loc": 283,

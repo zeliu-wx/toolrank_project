@@ -647,7 +647,7 @@ def decide_with_ceiling_fallback(
 
 
 def _build_category_diagnostics(pool: ScenePool) -> CategoryDiagnostics:
-    """从 scene pool 的 neighbor category profiles 加权聚合场景类别分布，判断 bias risk。"""
+    """Aggregate neighbor category profiles from the scene pool to estimate bias risk."""
     profile: dict[str, float] = {}
     for neighbor in pool.neighbors:
         for category, value in neighbor.category_profile.items():
@@ -944,7 +944,7 @@ def run_recommendation(
     openai_api_key: str | None = None,
     openai_api_base: str | None = None,
 ) -> PipelineResult:
-    """端到端管线：SCREC → DACE-RAG → CEGO → Checker。"""
+    """End-to-end pipeline: SCREC to DACE-RAG to CEGO to Checker."""
     cards = load_toolcards(toolcards_dir)
     _allowed_raw = os.environ.get("TOOLRANK_ALLOWED_TOOLS", "").strip()
     if _allowed_raw:
