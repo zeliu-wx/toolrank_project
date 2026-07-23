@@ -8,8 +8,10 @@ import typer
 
 from toolrank.cego import CegoError
 from toolrank.engine import run_recommendation
+from toolrank.kb_update import app as kb_app
 
 app = typer.Typer(help="LAKES smart-contract analyzer recommendation CLI", no_args_is_help=True)
+app.add_typer(kb_app, name="kb")
 
 _DEFAULT_TOOLCARDS_DIR = str((Path(__file__).resolve().parent.parent / "toolcards"))
 
@@ -27,10 +29,15 @@ def recommend(
     alert_cap: str = typer.Option("medium", "--alert-cap", help="Budget: alert cap (low|medium|high)."),
     recall: str = typer.Option("Default", "--recall", help="Preference for recall (Best|Prefer|Default)."),
     precision: str = typer.Option("Default", "--precision", help="Preference for precision (Best|Prefer|Default)."),
-    focus_categories: str = typer.Option("", "--focus-categories", help="Comma-separated DASP categories the user requires covered."),
+    focus_categories: str = typer.Option("", "--focus-categories", help="Comma-separated required DASP categories for complement evaluation."),
     model: str = typer.Option("", "--model", help="LLM model name."),
     emit: str = typer.Option("summary", "--emit", help="Output format: json|summary (default: summary)."),
     toolcards_dir: str = typer.Option(_DEFAULT_TOOLCARDS_DIR, "--toolcards-dir", help="ToolCards folder path (default: packaged toolcards/)."),
+    kb_root: Optional[str] = typer.Option(
+        None,
+        "--kb-root",
+        help="Dynamic KB root; resolves one kb_current.json generation for all KB readers.",
+    ),
     passage_store: Optional[str] = typer.Option(None, "--passage-store", help="Passage store JSON path."),
     vector_index: Optional[str] = typer.Option(None, "--vector-index", help="Vector index JSON path."),
     no_retrieval: bool = typer.Option(False, "--no-retrieval", help="Disable passage retrieval (ablation)."),
@@ -38,7 +45,12 @@ def recommend(
     results_root: str = typer.Option("LAKES_out", "--results-root", help="Root for execution outputs; per-contract folders are created under LAKES_out."),
     runner_script: Optional[str] = typer.Option(None, "--runner-script", help="Analyzer runner script path."),
     runner_cwd: Optional[str] = typer.Option(None, "--runner-cwd", help="Working directory for the analyzer runner."),
-    tool_timeout_sec: int = typer.Option(600, "--tool-timeout-sec", min=1, help="Per-tool timeout in seconds (default: 600)."),
+    tool_timeout_sec: Optional[int] = typer.Option(
+        None,
+        "--tool-timeout-sec",
+        min=1,
+        help="Per-tool timeout in seconds (default: runtime budget converted to seconds).",
+    ),
     gptscan_timeout_sec: int = typer.Option(600, "--gptscan-timeout-sec", min=1, help="GPTScan LLM timeout in seconds."),
     execution_jobs: int = typer.Option(
         0,
@@ -46,8 +58,6 @@ def recommend(
         min=0,
         help="Max tools to run in parallel during --execute; 0 means one job per selected tool.",
     ),
-    openai_api_key: Optional[str] = typer.Option(None, "--openai-api-key", help="OpenAI API key forwarded to GPTScan."),
-    openai_api_base: Optional[str] = typer.Option(None, "--openai-api-base", help="OpenAI-compatible API base forwarded to GPTScan."),
     explain: bool = typer.Option(
         True,
         "--explain/--no-explain",
@@ -57,7 +67,7 @@ def recommend(
     use_checker: bool = typer.Option(
         True,
         "--checker/--no-checker",
-        help="Run the RuleChecker stage (default: on). Use --no-checker for experiments to take CEGO's raw decision with no regeneration or stop_with_gaps fallback.",
+        help="Run the deterministic Stage 2 checker (default: on).",
     ),
 ) -> None:
     emit = emit.lower().strip()
@@ -73,6 +83,10 @@ def recommend(
     if precision not in {"Best", "Prefer", "Default"}:
         raise typer.BadParameter("--precision must be Best|Prefer|Default")
     focus_list = [c.strip().lower() for c in focus_categories.split(",") if c.strip()]
+    if kb_root and (passage_store or vector_index):
+        raise typer.BadParameter(
+            "--kb-root cannot be combined with --passage-store or --vector-index"
+        )
 
     try:
         result = run_recommendation(
@@ -88,6 +102,7 @@ def recommend(
             explain=explain,
             use_checker=use_checker,
             enable_retrieval=not no_retrieval,
+            kb_root=kb_root,
             passage_store_path=passage_store,
             vector_index_path=vector_index,
             execute=execute,
@@ -97,19 +112,24 @@ def recommend(
             tool_timeout_sec=tool_timeout_sec,
             gptscan_timeout_sec=gptscan_timeout_sec,
             execution_jobs=execution_jobs,
-            openai_api_key=openai_api_key,
-            openai_api_base=openai_api_base,
         )
-    except (CegoError, RuntimeError) as exc:
+    except (CegoError, RuntimeError, ValueError) as exc:
         typer.echo(f"recommendation failed: {exc}", err=True)
         raise typer.Exit(1) from exc
 
     if emit == "summary":
-        selected_tools = [item.tool for item in result.certificate.selected_plan]
+        selected_tools = (
+            [item.tool for item in result.certificate.selected_plan]
+            if result.certificate is not None
+            else []
+        )
         lines = [
-            f"certification: {result.packet.certification.status}",
-            f"selected_action: {result.certificate.selected_action_id}",
-            f"checker: {result.checker_verdict.status}",
+            f"status: {result.status.value}",
+            f"stage1: {result.packet.primary_selection.status.value}",
+            f"primary_tool: {result.packet.primary_selection.primary_tool or 'none'}",
+            f"stage2: {result.stage2_outcome.status.value if result.stage2_outcome else 'not_entered'}",
+            f"selected_action: {result.certificate.selected_action_id if result.certificate else 'none'}",
+            f"checker: {result.checker_verdict.status if result.checker_verdict else 'not_run'}",
             f"selected_tools: {', '.join(selected_tools) if selected_tools else 'none'}",
         ]
         execution_result = getattr(result, "execution", None)
@@ -121,9 +141,13 @@ def recommend(
         typer.echo("\n".join(lines))
     else:
         payload = {
+            "status": result.status.value,
             "packet": result.packet.model_dump(),
-            "certificate": result.certificate.model_dump(),
-            "checker_verdict": result.checker_verdict.model_dump(),
+            "stage2_context": result.context.model_dump() if result.context else None,
+            "stage2_outcome": result.stage2_outcome.model_dump() if result.stage2_outcome else None,
+            "matrix": result.matrix.model_dump() if result.matrix else None,
+            "certificate": result.certificate.model_dump() if result.certificate else None,
+            "checker_verdict": result.checker_verdict.model_dump() if result.checker_verdict else None,
             "execution": result.execution.model_dump() if getattr(result, "execution", None) else None,
             "fused_report": result.fused_report.model_dump() if getattr(result, "fused_report", None) else None,
             "lakes_output_dir": getattr(result, "lakes_output_dir", None),

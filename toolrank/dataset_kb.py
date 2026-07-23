@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -11,7 +12,43 @@ from toolrank.schemas import PerformanceEntry, PerformanceKnowledgeBase
 
 def load_performance_db(path: str | Path) -> PerformanceKnowledgeBase:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    return PerformanceKnowledgeBase.model_validate(payload)
+    kb = PerformanceKnowledgeBase.model_validate(payload)
+    _validate_dynamic_identities(kb)
+    return kb
+
+
+def _validate_dynamic_identities(kb: PerformanceKnowledgeBase) -> None:
+    """Validate additive dynamic fields without constraining legacy entries."""
+    dataset_ids: set[str] = set()
+    observation_ids: set[str] = set()
+    for entry in kb.entries:
+        if entry.canonical_dataset_id is not None:
+            if entry.canonical_dataset_id in dataset_ids:
+                raise ValueError(
+                    f"duplicate canonical dataset identity: {entry.canonical_dataset_id}"
+                )
+            dataset_ids.add(entry.canonical_dataset_id)
+        for observation in entry.performance_observations:
+            if observation.observation_id in observation_ids:
+                raise ValueError(
+                    f"duplicate performance observation ID: {observation.observation_id}"
+                )
+            observation_ids.add(observation.observation_id)
+            if (
+                entry.canonical_dataset_id is not None
+                and observation.canonical_dataset_id != entry.canonical_dataset_id
+            ):
+                raise ValueError(
+                    "performance observation canonical dataset does not match its entry"
+                )
+            if observation.dataset_name != entry.dataset_profile.dataset_name:
+                raise ValueError(
+                    "performance observation dataset name does not match its entry"
+                )
+            if observation.source_id != entry.source_id:
+                raise ValueError(
+                    "performance observation source does not match its dataset entry"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +64,7 @@ def load_performance_db(path: str | Path) -> PerformanceKnowledgeBase:
 # ---------------------------------------------------------------------------
 
 _RATE_FIELDS = ("precision", "recall", "f1", "accuracy", "failure_rate")
-_TIME_FIELDS = ("execution_time_avg", "time_sec")
+_TIME_FIELDS = ("execution_time_avg", "time_sec", "execution_time_avg_average_s")
 
 
 def _gate_numeric_ranges(entry: PerformanceEntry) -> Optional[str]:
@@ -40,8 +77,11 @@ def _gate_numeric_ranges(entry: PerformanceEntry) -> Optional[str]:
                 return f"{obs.tool_name}.metrics.{field}={value} not in [0.0, 1.0]"
         for field in _TIME_FIELDS:
             value = getattr(metrics, field, None)
-            if value is not None and value <= 0.0:
-                return f"{obs.tool_name}.metrics.{field}={value} not > 0.0"
+            if value is not None and (value <= 0.0 or not math.isfinite(value)):
+                return (
+                    f"{obs.tool_name}.metrics.{field}={value} "
+                    "not positive and finite"
+                )
         for category, score in (obs.vulnerability_scores or {}).items():
             if not (0.0 <= score <= 1.0):
                 return (

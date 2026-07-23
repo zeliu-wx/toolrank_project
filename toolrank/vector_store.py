@@ -138,6 +138,7 @@ def get_embeddings(
     model: str | None = None,
     timeout: float = 30,
     no_proxy: bool = False,
+    allow_curl_fallback: bool = True,
 ) -> list[list[float]]:
     """Get embeddings from an OpenAI-compatible endpoint."""
     if not texts:
@@ -197,7 +198,11 @@ def get_embeddings(
             response = urlopen(req, timeout=timeout)
         with response as resp:
             data = json.loads(resp.read())
-    except Exception:
+    except Exception as exc:
+        if not allow_curl_fallback:
+            raise RuntimeError(
+                "embedding HTTPS request failed; insecure curl fallback is disabled"
+            ) from exc
         data = _curl_fallback()
     return _extract_response_embeddings(data)
 

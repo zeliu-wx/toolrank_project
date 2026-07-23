@@ -13,8 +13,11 @@ category ownership.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 import json
+import math
 import os
 import re
 import shlex
@@ -22,10 +25,34 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Iterator, Optional, Sequence
 
+from toolrank.categories import normalize_category
+from toolrank.adapter_capabilities import adapter_supports_input
+from toolrank.compilation import (
+    CompilationBundleError,
+    CompilationStatus,
+    Stage3CompilationBundle,
+    build_compilation_bundle,
+    failed_compilation_bundle,
+    load_compilation_bundle,
+    validate_compilation_bundle,
+    write_compilation_manifest,
+)
+from toolrank.execution_status import aggregate_tool_status_history
 from toolrank.fusion import compact_fused_report_payload, fuse_reports
+from toolrank.process_deadline import run_process_with_deadline
+from toolrank.report_validity import (
+    OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+    clear_selected_run_artifacts,
+    find_valid_report,
+    load_valid_report,
+    make_run_quarantine_root,
+    promote_valid_report_tree,
+    remove_or_quarantine_tree,
+)
 from toolrank.report_parser import load_per_tool_findings_from_run_dir
 from toolrank.runner_adapter import (
     _enrich_report_with_categories,
@@ -33,7 +60,19 @@ from toolrank.runner_adapter import (
     _map_tool_name,
     _parse_tools,
 )
-from toolrank.schemas import CompositionPlan, FusedReport
+from toolrank.schemas import CompositionPlan, FusedReport, ToolExecutionStatus
+from toolrank.source_project import (
+    copy_dependency_tree,
+    dependency_closure,
+    mask_solidity_noncode_for_pragmas,
+    solidity_imports,
+    source_entrypoints,
+)
+from toolrank.solc_range import (
+    representative_solidity_version,
+    version_satisfies_solidity_constraint,
+)
+from toolrank.target_inputs import classify_target_input
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,14 +101,25 @@ GPTSCAN_DEFAULT_MODEL_GPT4 = _env_value("LAKES_GPTSCAN_DEFAULT_MODEL_GPT4", "TOO
 SAILFISH_RUNNER = Path(_env_value("LAKES_SAILFISH_RUNNER", "TOOLRANK_SAILFISH_RUNNER", default=str(_repo_path("docker/runners/run_sailfish.py"))))
 SAILFISH_DEFAULT_SOLC = _env_value("LAKES_SAILFISH_DEFAULT_SOLC", "TOOLRANK_SAILFISH_DEFAULT_SOLC", default="0.4.25")
 SMARTIAN_RUNNER = Path(_env_value("LAKES_SMARTIAN_RUNNER", "TOOLRANK_SMARTIAN_RUNNER", default=str(_repo_path("docker/runners/run_smartian.py"))))
+SMARTBUGS_PROJECT_RUNNER = Path(__file__).with_name("smartbugs_project.py")
 
 _PRAGMA_SOLIDITY_RE = re.compile(r"pragma\s+solidity\s+([^;]+);", re.IGNORECASE)
+_SOLC_SELECT_VERSION_RE = re.compile(r"(?<![0-9.])(\d+\.\d+\.\d+)(?![0-9.])")
 _SECURIFY2_IMAGE_CACHE: set[str] = set()
-_CATEGORY_ALIASES = {
-    "DENIAL_OF_SERVICE": "DENIAL_SERVICE",
-    "UNCHECKED_LOW_LEVEL_CALLS": "UNCHECKED_LOW_CALLS",
-    "UNCHECKED_LL_CALLS": "UNCHECKED_LOW_CALLS",
-}
+_ADAPTER_WORKER_ARG = "--_adapter-worker"
+UNSUPPORTED_INPUT_RETURN_CODE = 65
+COMPILATION_FAILURE_RETURN_CODE = 66
+
+
+@dataclass(frozen=True)
+class SmartBugsInvocation:
+    command: list[str]
+    cwd: Path
+    env: dict[str, str] | None
+
+
+class SmartBugsPreparationError(RuntimeError):
+    """The requested input cannot be converted into a SmartBugs invocation."""
 
 
 def _die(message: str, code: int = 1) -> None:
@@ -82,6 +132,7 @@ def _stream_process(
     cwd: Optional[Path] = None,
     env: Optional[dict[str, str]] = None,
     display_command: Optional[list[str]] = None,
+    redactions: Sequence[str] = (),
 ) -> int:
     logged_command = display_command or command
     if cwd is not None:
@@ -97,15 +148,20 @@ def _stream_process(
         text=True,
     )
     assert proc.stdout is not None
-    for line in proc.stdout:
-        print(line, end="")
+    try:
+        for line in proc.stdout:
+            safe_line = line
+            for secret in redactions:
+                if secret:
+                    safe_line = safe_line.replace(secret, "***")
+            print(safe_line, end="")
+    finally:
+        proc.stdout.close()
     return proc.wait()
 
 
 def _normalize_category_label(label: str) -> str:
-    normalized = re.sub(r"[^A-Z0-9]+", "_", label.strip().upper())
-    normalized = re.sub(r"_+", "_", normalized).strip("_")
-    return _CATEGORY_ALIASES.get(normalized, normalized)
+    return normalize_category(label).upper()
 
 
 def _parse_tool_category_filters(raw: str) -> dict[str, list[str] | None]:
@@ -135,12 +191,35 @@ def _parse_tool_category_filters(raw: str) -> dict[str, list[str] | None]:
     return parsed
 
 
-def _iter_contracts(target_path: Path) -> list[Path]:
+@dataclass(frozen=True)
+class RunnerInput:
+    path: Path
+    kind: str
+
+
+def _discover_target_inputs(target_path: Path) -> list[RunnerInput]:
     if target_path.is_file():
-        return [target_path] if target_path.suffix.lower() == ".sol" else []
-    if target_path.is_dir():
-        return sorted(path for path in target_path.rglob("*.sol") if path.is_file())
-    return []
+        kind = classify_target_input(target_path)
+        return [RunnerInput(target_path, kind)] if kind is not None else []
+    if not target_path.is_dir():
+        return []
+
+    classified = [
+        (path, kind)
+        for path in sorted(target_path.rglob("*"))
+        if path.is_file()
+        and not path.is_symlink()
+        and (kind := classify_target_input(path)) is not None
+    ]
+    source_files = [path for path, kind in classified if kind == "sol"]
+    source_roots = source_entrypoints(source_files, target_path)
+    inputs = [RunnerInput(path, "sol") for path in source_roots]
+    inputs.extend(
+        RunnerInput(path, kind)
+        for path, kind in classified
+        if kind != "sol"
+    )
+    return inputs
 
 
 def _relative_contract_path(contract_path: Path, target_root: Path) -> Path:
@@ -152,29 +231,16 @@ def _relative_contract_path(contract_path: Path, target_root: Path) -> Path:
         return Path(contract_path.name)
 
 
-def _dedupe_paths(paths: Sequence[Path]) -> list[Path]:
-    deduped: list[Path] = []
-    seen: set[Path] = set()
-    for path in paths:
-        if path in seen:
-            continue
-        seen.add(path)
-        deduped.append(path)
-    return deduped
+def _logical_input_id(contract_path: Path, target_root: Path) -> str:
+    project_root = target_root if target_root.is_dir() else contract_path.parent
+    try:
+        return contract_path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return contract_path.name
 
 
 def _find_result_json(out_dir: Path) -> Optional[Path]:
-    if out_dir.is_file() and out_dir.name == "result.json":
-        return out_dir
-    if not out_dir.is_dir():
-        return None
-    direct = out_dir / "result.json"
-    if direct.is_file():
-        return direct
-    for root, _, files in os.walk(out_dir):
-        if "result.json" in files:
-            return Path(root) / "result.json"
-    return None
+    return find_valid_report(out_dir)
 
 
 def _load_report(report_path: Path) -> Optional[dict]:
@@ -185,205 +251,67 @@ def _load_report(report_path: Path) -> Optional[dict]:
     return payload if isinstance(payload, dict) else None
 
 
+def _load_valid_gptscan_raw(report_path: Path) -> Optional[dict]:
+    """Accept only an explicit successful GPTScan result list."""
+    payload = _load_report(report_path)
+    if payload is None:
+        return None
+    if payload.get("success") is not True:
+        return None
+    if not isinstance(payload.get("results"), list):
+        return None
+    return payload
+
+
 def _write_enriched_report(report_path: Path, tool_id: str, mapping: dict[tuple[str, str], str]) -> bool:
-    report = _load_report(report_path)
+    report = load_valid_report(report_path)
     if report is None:
         return False
-    enriched = _enrich_report_with_categories(report, tool_id, mapping)
-    report_path.write_text(json.dumps(enriched, ensure_ascii=False, indent=2), encoding="utf-8")
-    return True
-
-
-def _candidate_known_reports_dirs(target_path: Path) -> list[Path]:
-    candidates: list[Path] = []
-    if os.getenv("TOOLRANK_KNOWN_REPORTS_DIR"):
-        candidates.append(Path(os.environ["TOOLRANK_KNOWN_REPORTS_DIR"]))
-    for base in [Path.cwd(), target_path if target_path.is_dir() else target_path.parent, Path(__file__).resolve()]:
-        for parent in [base, *base.parents]:
-            candidates.append(parent / "smartbugsout")
-    return _dedupe_paths([path.expanduser() for path in candidates])
-
-
-def _resolve_known_reports_dir(target_path: Path, known_reports_dir: str | Path | None) -> Optional[Path]:
-    if known_reports_dir is not None:
-        raw = str(known_reports_dir).strip()
-        if not raw:
-            return None
-        path = Path(raw).expanduser().resolve()
-        return path if path.is_dir() else None
-    for candidate in _candidate_known_reports_dirs(target_path):
-        if candidate.is_dir():
-            return candidate.resolve()
-    return None
-
-
-def _known_report_candidates(
-    known_reports_root: Path,
-    tool_id: str,
-    contract_path: Path,
-    target_root: Path,
-) -> list[Path]:
-    tool_dir = known_reports_root / tool_id
-    raw_tool_dir = known_reports_root / "_raw" / tool_id
-    rel = _relative_contract_path(contract_path, target_root)
-
-    direct_candidates = [
-        tool_dir / f"{contract_path.stem}.json",
-        tool_dir / contract_path.name / "result.json",
-    ]
-    if rel != Path("."):
-        direct_candidates.extend(
-            [
-                tool_dir / rel.with_suffix(".json"),
-                tool_dir / rel / "result.json",
-            ]
+    try:
+        enriched = _enrich_report_with_categories(report, tool_id, mapping)
+        report_path.write_text(
+            json.dumps(enriched, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
-    glob_candidates: list[Path] = []
-    if tool_dir.is_dir():
-        glob_candidates.extend(sorted(tool_dir.rglob(f"{contract_path.name}/result.json")))
-    if raw_tool_dir.is_dir():
-        glob_candidates.extend(sorted(raw_tool_dir.glob(f"*/{contract_path.name}/result.json")))
-        if rel != Path("."):
-            glob_candidates.extend(sorted(raw_tool_dir.glob(f"*/{rel.as_posix()}/result.json")))
-
-    return _dedupe_paths([path for path in [*direct_candidates, *glob_candidates] if path.is_file()])
-
-
-def _copy_known_report(report_path: Path, out_dir: Path) -> Optional[Path]:
-    if report_path.name == "result.json":
-        source_dir = report_path.parent
-        if source_dir.resolve() != out_dir.resolve():
-            if out_dir.exists():
-                shutil.rmtree(out_dir)
-            shutil.copytree(source_dir, out_dir)
-        return out_dir / "result.json"
-
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    copied = out_dir / "result.json"
-    shutil.copy2(report_path, copied)
-    return copied
-
-
-def _reuse_known_report(
-    *,
-    known_reports_root: Optional[Path],
-    tool_id: str,
-    contract_path: Path,
-    target_root: Path,
-    out_dir: Path,
-    mapping: dict[tuple[str, str], str],
-) -> bool:
-    if known_reports_root is None:
+    except (OSError, TypeError, ValueError):
         return False
-    for candidate in _known_report_candidates(known_reports_root, tool_id, contract_path, target_root):
-        copied = _copy_known_report(candidate, out_dir)
-        if copied and _write_enriched_report(copied, tool_id, mapping):
-            print(f"[reuse] known report found: {candidate}")
-            return True
-        print(f"[warn] known report unusable tool={tool_id} path={candidate}", file=sys.stderr)
-    return False
+    return load_valid_report(report_path) is not None
 
 
-def _collect_pragma_specs(contract_path: Path) -> list[str]:
-    try:
-        text = contract_path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return []
-    stripped = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
-    stripped = re.sub(r"//.*", "", stripped)
-    return [match.group(1).strip() for match in _PRAGMA_SOLIDITY_RE.finditer(stripped)]
-
-
-def _lower_bound_from_spec(raw: str) -> Optional[str]:
-    for pattern in (r"[\^~]\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)", r">=\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)", r"([0-9]+\.[0-9]+(?:\.[0-9]+)?)"):
-        match = re.search(pattern, raw)
-        if match:
-            version = match.group(1)
-            return f"{version}.0" if version.count(".") == 1 else version
-    return None
-
-
-def _parse_version_tuple(raw: str) -> tuple[int, int, int]:
-    parts = [int(part) for part in raw.split(".") if part.isdigit()]
-    while len(parts) < 3:
-        parts.append(0)
-    return parts[0], parts[1], parts[2]
-
-
-def _max_lower_bound_version(contract_path: Path) -> Optional[tuple[int, int, int]]:
-    versions = [
-        _parse_version_tuple(version)
-        for spec in _collect_pragma_specs(contract_path)
-        if (version := _lower_bound_from_spec(spec))
-    ]
-    return max(versions) if versions else None
-
-
-def _use_get_src_for_slither(contract_path: Path) -> bool:
-    version = _max_lower_bound_version(contract_path)
-    return bool(version and version >= (0, 8, 0))
-
-
-def _run_slither_via_get_src(contract_path: Path, out_dir: Path) -> int:
-    try:
-        import get_src as get_src_module
-    except Exception as exc:
-        print(f"[warn] get_src import failed: {exc}", file=sys.stderr)
-        return 1
-    try:
-        raw = get_src_module.get_src(str(contract_path))
-    except Exception as exc:
-        print(f"[warn] get_src failed: {exc}", file=sys.stderr)
-        return 1
-    if isinstance(raw, str):
+def _collect_pragma_specs(
+    contract_path: Path,
+    *,
+    target_root: Path | None = None,
+) -> list[str]:
+    source_paths = [contract_path]
+    if target_root is not None:
+        project_root = target_root if target_root.is_dir() else contract_path.parent
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            print(f"[warn] get_src output is not JSON: {exc}", file=sys.stderr)
-            return 1
-    elif isinstance(raw, dict):
-        payload = raw
-    else:
-        print("[warn] get_src returned unexpected type", file=sys.stderr)
-        return 1
-    if payload.get("error"):
-        print(f"[warn] get_src error: {payload.get('error')}", file=sys.stderr)
-        return 1
-
-    findings: list[dict] = []
-    for item in payload.get("slither") or []:
-        if not isinstance(item, dict):
+            source_paths = dependency_closure(contract_path, project_root)
+        except ValueError:
+            source_paths = [contract_path]
+    specs: list[str] = []
+    for source_path in source_paths:
+        try:
+            text = source_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
             continue
-        name = item.get("ruleId") or item.get("id") or "slither_finding"
-        finding: dict[str, object] = {"name": str(name)}
-        message = item.get("message")
-        if isinstance(message, dict) and message.get("text"):
-            finding["message"] = str(message["text"])
-        locations = item.get("locations") or []
-        if locations and isinstance(locations[0], dict):
-            phys = locations[0].get("physicalLocation") or {}
-            region = phys.get("region") or {}
-            artifact = phys.get("artifactLocation") or {}
-            if region.get("startLine") is not None:
-                finding["line"] = int(region["startLine"])
-                finding["line_end"] = int(region.get("endLine") or region["startLine"])
-            if artifact.get("uri"):
-                finding["filename"] = str(artifact["uri"])
-        findings.append(finding)
+        stripped = mask_solidity_noncode_for_pragmas(text)
+        specs.extend(
+            match.group(1).strip()
+            for match in _PRAGMA_SOLIDITY_RE.finditer(stripped)
+        )
+    return specs
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "result.json").write_text(
-        json.dumps({"errors": [], "fails": [], "findings": findings, "infos": [], "parser": {"tool": "get_src"}}, indent=2),
-        encoding="utf-8",
+
+def _solc_lower_bound(
+    contract_path: Path,
+    *,
+    target_root: Path | None = None,
+) -> Optional[str]:
+    return representative_solidity_version(
+        _collect_pragma_specs(contract_path, target_root=target_root)
     )
-    return 0
-
-
-def _solc_lower_bound(contract_path: Path) -> Optional[str]:
-    version = _max_lower_bound_version(contract_path)
-    return ".".join(str(part) for part in version) if version else None
 
 
 def _write_skip_report(out_dir: Path, tool_id: str, message: str) -> int:
@@ -402,21 +330,69 @@ def _write_skip_report(out_dir: Path, tool_id: str, message: str) -> int:
         encoding="utf-8",
     )
     print(f"[skip] {tool_id}: {message}", file=sys.stderr)
-    return 0
+    return UNSUPPORTED_INPUT_RETURN_CODE
 
 
-def _run_solc_select(contract_path: Path, tool_label: str) -> None:
-    version = _solc_lower_bound(contract_path)
-    if not version:
+def _installed_solc_select_versions() -> list[str]:
+    try:
+        completed = subprocess.run(
+            ["solc-select", "versions"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    versions = set(
+        _SOLC_SELECT_VERSION_RE.findall(
+            f"{completed.stdout or ''}\n{completed.stderr or ''}"
+        )
+    )
+    return sorted(
+        versions,
+        key=lambda value: tuple(int(part) for part in value.split(".")),
+    )
+
+
+def _run_solc_select(
+    contract_path: Path,
+    tool_label: str,
+    *,
+    target_root: Path | None = None,
+) -> bool:
+    constraints = _collect_pragma_specs(contract_path, target_root=target_root)
+    if not constraints:
         print(f"[warn] pragma lower-bound not found; keep current solc for {tool_label}", file=sys.stderr)
-        return
+        return True
+    installed = _installed_solc_select_versions()
+    compatible = [
+        version
+        for version in installed
+        if all(
+            version_satisfies_solidity_constraint(version, constraint)
+            for constraint in constraints
+        )
+    ]
+    if not compatible:
+        joined = "; ".join(constraints)
+        print(
+            f"[warn] no installed solc satisfies {tool_label} constraints: {joined}",
+            file=sys.stderr,
+        )
+        return False
+    version = compatible[0]
     try:
         rc = _stream_process(["solc-select", "use", version])
     except FileNotFoundError:
         print("[warn] solc-select not found in PATH", file=sys.stderr)
-        return
+        return False
     if rc != 0:
         print(f"[warn] solc-select use {version} failed (rc={rc})", file=sys.stderr)
+        return False
+    return True
 
 
 def _run_gptscan(
@@ -425,38 +401,91 @@ def _run_gptscan(
     api_key: str,
     gptscan_timeout: int,
     openai_api_base: str,
+    *,
+    target_root: Path | None = None,
 ) -> int:
     if not GPTSCAN_MAIN.exists():
         print(f"[warn] GPTScan main.py not found: {GPTSCAN_MAIN}", file=sys.stderr)
         return 1
-    _run_solc_select(contract_path, "gptscan")
-    scan_source = contract_path
-    temp_dir: Optional[tempfile.TemporaryDirectory[str]] = None
-    if contract_path.is_file():
-        temp_dir = tempfile.TemporaryDirectory(prefix="gptscan_src_")
-        scan_source = Path(temp_dir.name)
-        shutil.copy2(contract_path, scan_source / contract_path.name)
+    resolved_root = target_root or contract_path
+    if not _run_solc_select(
+        contract_path,
+        "gptscan",
+        target_root=resolved_root,
+    ):
+        return 1
+    temp_dir: Optional[tempfile.TemporaryDirectory[str]] = tempfile.TemporaryDirectory(
+        prefix="gptscan_src_"
+    )
+    scan_source = Path(temp_dir.name)
+    try:
+        if resolved_root.is_dir():
+            source_files = [
+                path
+                for path in sorted(resolved_root.rglob("*.sol"))
+                if path.is_file() and not path.is_symlink()
+            ]
+            entrypoints = source_entrypoints(source_files, resolved_root)
+            for entrypoint in entrypoints:
+                copy_dependency_tree(entrypoint, resolved_root, scan_source)
+        else:
+            copy_dependency_tree(
+                contract_path,
+                contract_path.parent,
+                scan_source,
+            )
+    except (OSError, ValueError) as exc:
+        print(f"[warn] GPTScan source staging failed: {exc}", file=sys.stderr)
+        temp_dir.cleanup()
+        return 1
     out_dir.mkdir(parents=True, exist_ok=True)
     gpt_out = out_dir / "gptscan_output.json"
+    result_path = out_dir / "result.json"
+    try:
+        result_path.unlink(missing_ok=True)
+    except OSError:
+        print("[warn] GPTScan result preparation failed", file=sys.stderr)
+        return 1
     key = api_key.strip() or os.getenv("OPENAI_API_KEY", "").strip()
-    command = [str(GPTSCAN_PY if GPTSCAN_PY.exists() else Path(sys.executable)), str(GPTSCAN_MAIN), "-s", str(scan_source), "-o", str(gpt_out), "-k", key]
+    wrapper = Path(__file__).with_name("gptscan_safe_entry.py")
+    command = [
+        str(GPTSCAN_PY if GPTSCAN_PY.exists() else Path(sys.executable)),
+        str(wrapper),
+    ]
     env = os.environ.copy()
+    env["OPENAI_API_KEY"] = key
     env["OPENAI_API_BASE"] = openai_api_base.strip() or env.get("OPENAI_API_BASE", "") or env.get("OPENAI_BASE_URL", "") or GPTSCAN_DEFAULT_API_BASE
     env["OPENAI_BASE_URL"] = env["OPENAI_API_BASE"]
     env["GPTSCAN_USE_GPT4"] = env.get("GPTSCAN_USE_GPT4", "1")
     env["GPTSCAN_MODEL_GPT4"] = env.get("GPTSCAN_MODEL_GPT4") or env.get("GPTSCAN_MODEL") or GPTSCAN_DEFAULT_MODEL_GPT4
     env["GPTSCAN_TIMEOUT_SECONDS"] = str(gptscan_timeout)
+    env["LAKES_GPTSCAN_MAIN"] = str(GPTSCAN_MAIN)
+    env["LAKES_GPTSCAN_SOURCE"] = str(scan_source)
+    env["LAKES_GPTSCAN_OUTPUT"] = str(gpt_out)
     masked = command[:]
     if "-k" in masked:
         key_index = masked.index("-k") + 1
         if key_index < len(masked):
             masked[key_index] = "***"
     try:
-        rc = _stream_process(command, cwd=GPTSCAN_MAIN.parent, env=env, display_command=masked)
+        rc = _stream_process(
+            command,
+            cwd=GPTSCAN_MAIN.parent,
+            env=env,
+            display_command=masked,
+            redactions=[key],
+        )
         if rc != 0:
             return rc
-        report = _normalize_gptscan_report(_load_report(gpt_out) or {})
-        (out_dir / "result.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        raw_report = _load_valid_gptscan_raw(gpt_out)
+        if raw_report is None:
+            print("[warn] GPTScan output missing or structurally invalid", file=sys.stderr)
+            return 1
+        report = _normalize_gptscan_report(raw_report)
+        result_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         return 0
     finally:
         if temp_dir is not None:
@@ -499,18 +528,23 @@ def _normalize_gptscan_report(payload: dict) -> dict:
     return report
 
 
-def _run_securify2(contract_path: Path, out_dir: Path) -> int:
+def _run_securify2(
+    contract_path: Path,
+    out_dir: Path,
+    *,
+    target_root: Path,
+) -> int:
     if not SECURIFY2_RUNNER.exists():
         print(f"[warn] securify2 runner not found: {SECURIFY2_RUNNER}", file=sys.stderr)
         return 1
-    version_tuple = _max_lower_bound_version(contract_path)
-    if version_tuple and version_tuple < (0, 5, 0):
+    version = _solc_lower_bound(contract_path, target_root=target_root)
+    if version and not version_satisfies_solidity_constraint(version, ">=0.5.0"):
         return _write_skip_report(
             out_dir,
             "securify2",
-            f"securify2 supports Solidity ASTs from 0.5.0; detected lower bound {'.'.join(str(part) for part in version_tuple)}",
+            f"securify2 supports Solidity ASTs from 0.5.0; detected {version}",
         )
-    version = ".".join(str(part) for part in version_tuple) if version_tuple else SECURIFY2_DEFAULT_SOLC
+    version = version or SECURIFY2_DEFAULT_SOLC
     image = SECURIFY2_IMAGE_TEMPLATE.format(version=version)
     if image not in _SECURIFY2_IMAGE_CACHE:
         dockerfile = SECURIFY2_RUNNER.parent / "Dockerfile"
@@ -540,23 +574,39 @@ def _run_securify2(contract_path: Path, out_dir: Path) -> int:
             SECURIFY2_PLATFORM,
             "--sudo",
             "--debug-cmd",
+            "--project-root",
+            str(target_root if target_root.is_dir() else contract_path.parent),
         ],
         cwd=SECURIFY2_RUNNER.parent,
     )
 
 
-def _run_sailfish(contract_path: Path, out_dir: Path, timeout: int) -> int:
+def _run_sailfish(
+    contract_path: Path,
+    out_dir: Path,
+    timeout: int,
+    *,
+    target_root: Path,
+) -> int:
     if not SAILFISH_RUNNER.exists():
         print(f"[warn] sailfish runner not found: {SAILFISH_RUNNER}", file=sys.stderr)
         return 1
     out_dir.mkdir(parents=True, exist_ok=True)
-    solc_ver = _solc_lower_bound(contract_path) or SAILFISH_DEFAULT_SOLC
+    solc_ver = (
+        _solc_lower_bound(contract_path, target_root=target_root)
+        or SAILFISH_DEFAULT_SOLC
+    )
+    workspace = target_root if target_root.is_dir() else contract_path.parent
+    try:
+        source_name = contract_path.relative_to(workspace).as_posix()
+    except ValueError:
+        source_name = contract_path.name
     return _stream_process(
         [
             sys.executable,
             str(SAILFISH_RUNNER),
-            str(contract_path.parent),
-            contract_path.name,
+            str(workspace),
+            source_name,
             solc_ver,
             "--artifacts_root",
             str(out_dir),
@@ -566,12 +616,40 @@ def _run_sailfish(contract_path: Path, out_dir: Path, timeout: int) -> int:
     )
 
 
-def _run_smartian(contract_path: Path, out_dir: Path, timeout: int) -> int:
+def _run_smartian(
+    contract_path: Path,
+    out_dir: Path,
+    timeout: int,
+    *,
+    target_root: Path,
+    compilation_bundle: Stage3CompilationBundle,
+    logical_input_id: str,
+) -> int:
     if not SMARTIAN_RUNNER.exists():
         print(f"[warn] smartian runner not found: {SMARTIAN_RUNNER}", file=sys.stderr)
         return 1
+    route = compilation_bundle.route_for("smartian", logical_input_id)
+    if route is None:
+        print("[warn] Smartian shared compilation route not found", file=sys.stderr)
+        return 1
+    compiled = compilation_bundle.contracts.get(route.fully_qualified_contract)
+    if (
+        compiled is None
+        or compiled.abi is None
+        or not compiled.creation_bytecode
+    ):
+        print("[warn] Smartian shared artifacts are incomplete", file=sys.stderr)
+        return 1
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="smartian_") as tmp:
+        tmp_path = Path(tmp)
+        abi_path = tmp_path / "contract.abi.json"
+        bytecode_path = tmp_path / "contract.bin"
+        abi_path.write_text(
+            json.dumps(compiled.abi, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        bytecode_path.write_text(compiled.creation_bytecode, encoding="utf-8")
         rc = _stream_process(
             [
                 sys.executable,
@@ -580,6 +658,20 @@ def _run_smartian(contract_path: Path, out_dir: Path, timeout: int) -> int:
                 tmp,
                 "--timeout",
                 str(timeout),
+                "--project-root",
+                str(target_root if target_root.is_dir() else contract_path.parent),
+                "--shared-abi",
+                str(abi_path),
+                "--shared-bytecode",
+                str(bytecode_path),
+                "--shared-contract-key",
+                route.fully_qualified_contract,
+                "--shared-bundle-id",
+                compilation_bundle.manifest.bundle_id or "",
+                "--shared-compiler-version",
+                compilation_bundle.manifest.compiler_version or "",
+                "--shared-compiler-binary",
+                compilation_bundle.manifest.compiler_binary or "",
             ],
         )
         produced = next(Path(tmp).rglob("result.json"), None)
@@ -590,8 +682,17 @@ def _run_smartian(contract_path: Path, out_dir: Path, timeout: int) -> int:
         return rc
 
 
-def _compile_runtime_hex_for_vandal(contract_path: Path) -> Optional[str]:
-    _run_solc_select(contract_path, "vandal")
+def _compile_runtime_hex_for_vandal(
+    contract_path: Path,
+    *,
+    target_root: Path,
+) -> Optional[str]:
+    if not _run_solc_select(
+        contract_path,
+        "vandal",
+        target_root=target_root,
+    ):
+        return None
     try:
         proc = subprocess.run(
             ["solc", "--combined-json", "bin-runtime", str(contract_path)],
@@ -620,14 +721,150 @@ def _compile_runtime_hex_for_vandal(contract_path: Path) -> Optional[str]:
     return None
 
 
-def _prepare_runtime_hex_file_for_vandal(contract_path: Path) -> tuple[Optional[Path], Optional[tempfile.TemporaryDirectory[str]]]:
-    runtime_hex = _compile_runtime_hex_for_vandal(contract_path)
+def _prepare_runtime_hex_file_for_vandal(
+    contract_path: Path,
+    *,
+    target_root: Path,
+    compilation_bundle: Stage3CompilationBundle,
+    logical_input_id: str,
+) -> tuple[Optional[Path], Optional[tempfile.TemporaryDirectory[str]]]:
+    route = compilation_bundle.route_for("vandal", logical_input_id)
+    compiled = (
+        compilation_bundle.contracts.get(route.fully_qualified_contract)
+        if route is not None
+        else None
+    )
+    runtime_hex = compiled.runtime_bytecode if compiled is not None else None
     if not runtime_hex:
         return None, None
     temp_dir = tempfile.TemporaryDirectory(prefix="vandal_rt_")
     path = Path(temp_dir.name) / f"{contract_path.stem}.rt.hex"
     path.write_text(runtime_hex, encoding="utf-8")
     return path, temp_dir
+
+
+@contextmanager
+def prepare_smartbugs_invocation(
+    tool_id: str,
+    contract_path: Path,
+    out_dir: Path,
+    *,
+    target_root: Path,
+    smartbugs_dir: Optional[Path],
+    timeout: int | float,
+    input_kind: str,
+    compilation_bundle: Stage3CompilationBundle | None = None,
+    logical_input_id: str | None = None,
+) -> Iterator[SmartBugsInvocation]:
+    """Prepare one typed generic SmartBugs invocation and clean temp input."""
+
+    temp_input_dir: Optional[tempfile.TemporaryDirectory[str]] = None
+    target_input = contract_path
+    runtime_mode = False
+    effective_kind = input_kind
+    if tool_id == "vandal" and input_kind == "sol":
+        if compilation_bundle is None or logical_input_id is None:
+            raise SmartBugsPreparationError(
+                "Vandal source execution requires a ready shared compilation bundle"
+            )
+        target_input, temp_input_dir = _prepare_runtime_hex_file_for_vandal(
+            contract_path,
+            target_root=target_root,
+            compilation_bundle=compilation_bundle,
+            logical_input_id=logical_input_id,
+        )
+        if target_input is None:
+            raise SmartBugsPreparationError("Vandal runtime projection is missing")
+        runtime_mode = True
+        effective_kind = "runtime"
+        print(f"[vandal] runtime_input={target_input}")
+    elif input_kind in {"bytecode", "runtime"}:
+        temp_input_dir = tempfile.TemporaryDirectory(prefix=f"lakes_{input_kind}_")
+        suffix = ".rt.hex" if input_kind == "runtime" else ".hex"
+        target_input = Path(temp_input_dir.name) / f"{contract_path.stem}{suffix}"
+        try:
+            bytecode = contract_path.read_text(encoding="utf-8", errors="ignore")
+            target_input.write_text(
+                "".join(bytecode.split()).removeprefix("0x"),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            temp_input_dir.cleanup()
+            temp_input_dir = None
+            raise SmartBugsPreparationError(f"bytecode input unreadable: {exc}") from exc
+        runtime_mode = input_kind == "runtime"
+
+    try:
+        resolved_smartbugs_dir = smartbugs_dir or _resolve_smartbugs_dir(target_root)
+        env: dict[str, str] | None = None
+        smartbugs_api_available = all(
+            (resolved_smartbugs_dir / relative).is_file()
+            for relative in ("sb/cli.py", "sb/docker.py")
+        )
+        exact_execution_solc = (
+            compilation_bundle.manifest.compiler_version
+            if compilation_bundle is not None
+            else None
+        )
+        requires_project_bridge = effective_kind == "sol" and (
+            bool(exact_execution_solc)
+            or not (target_root.is_file() and not solidity_imports(contract_path))
+        )
+        if requires_project_bridge and not smartbugs_api_available:
+            raise SmartBugsPreparationError(
+                "SmartBugs Python API unavailable; cannot preserve source imports"
+            )
+        if effective_kind == "sol" and smartbugs_api_available:
+            smartbugs_python = resolved_smartbugs_dir / ".venv" / "bin" / "python"
+            command_prefix = [
+                str(smartbugs_python if smartbugs_python.exists() else Path(sys.executable)),
+                str(SMARTBUGS_PROJECT_RUNNER),
+            ]
+            env = os.environ.copy()
+            pythonpath = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = os.pathsep.join(
+                part
+                for part in (
+                    str(_REPO_ROOT),
+                    str(resolved_smartbugs_dir),
+                    pythonpath,
+                )
+                if part
+            )
+            project_root = target_root if target_root.is_dir() else contract_path.parent
+            env["LAKES_PROJECT_ROOT"] = str(project_root.resolve())
+            env["LAKES_SOLIDITY_CONSTRAINTS"] = json.dumps(
+                [exact_execution_solc]
+                if exact_execution_solc
+                else _collect_pragma_specs(
+                    contract_path,
+                    target_root=target_root,
+                )
+            )
+            if exact_execution_solc:
+                env["LAKES_EXECUTION_SOLC_VERSION"] = exact_execution_solc
+        else:
+            command_prefix = ["./smartbugs"]
+        command = [
+            *command_prefix,
+            "-t",
+            tool_id,
+            "-f",
+            str(target_input),
+            "--timeout",
+            str(max(1, int(math.ceil(float(timeout))))),
+            "--continue-on-errors",
+            "--results",
+            str(out_dir),
+            "--sarif",
+            "--json",
+        ]
+        if runtime_mode:
+            command.append("--runtime")
+        yield SmartBugsInvocation(command, resolved_smartbugs_dir, env)
+    finally:
+        if temp_input_dir is not None:
+            temp_input_dir.cleanup()
 
 
 def _candidate_smartbugs_dirs(target_path: Path) -> list[Path]:
@@ -666,51 +903,192 @@ def _run_smartbugs_tool(
     gptscan_timeout: int,
     openai_api_key: str,
     openai_api_base: str,
+    input_kind: str = "sol",
+    compilation_bundle: Stage3CompilationBundle | None = None,
+    logical_input_id: str | None = None,
 ) -> int:
+    if not adapter_supports_input(tool_id, input_kind):
+        print(
+            f"[unsupported] tool={tool_id} input_kind={input_kind}",
+            file=sys.stderr,
+        )
+        return UNSUPPORTED_INPUT_RETURN_CODE
     if tool_id == "securify2":
-        return _run_securify2(contract_path, out_dir)
+        return _run_securify2(contract_path, out_dir, target_root=target_root)
     if tool_id == "gptscan":
-        return _run_gptscan(contract_path, out_dir, openai_api_key, gptscan_timeout, openai_api_base)
+        return _run_gptscan(
+            contract_path,
+            out_dir,
+            openai_api_key,
+            gptscan_timeout,
+            openai_api_base,
+            target_root=target_root,
+        )
     if tool_id == "sailfish":
-        return _run_sailfish(contract_path, out_dir, timeout)
+        return _run_sailfish(contract_path, out_dir, timeout, target_root=target_root)
     if tool_id == "smartian":
-        return _run_smartian(contract_path, out_dir, timeout)
-    if tool_id == "slither" and _use_get_src_for_slither(contract_path):
-        print("[run] slither via get_src.py (pragma >= 0.8.x)")
-        return _run_slither_via_get_src(contract_path, out_dir)
-
-    temp_runtime_dir: Optional[tempfile.TemporaryDirectory[str]] = None
-    target_input = contract_path
-    runtime_mode = False
-    if tool_id == "vandal":
-        target_input, temp_runtime_dir = _prepare_runtime_hex_file_for_vandal(contract_path)
-        if target_input is None:
+        if compilation_bundle is None or logical_input_id is None:
+            print("[warn] Smartian source route requires shared compilation", file=sys.stderr)
             return 1
-        runtime_mode = True
-        print(f"[vandal] runtime_input={target_input}")
+        return _run_smartian(
+            contract_path,
+            out_dir,
+            timeout,
+            target_root=target_root,
+            compilation_bundle=compilation_bundle,
+            logical_input_id=logical_input_id,
+        )
 
     try:
-        resolved_smartbugs_dir = smartbugs_dir or _resolve_smartbugs_dir(target_root)
-        command = [
-            "./smartbugs",
-            "-t",
+        with prepare_smartbugs_invocation(
             tool_id,
-            "-f",
-            str(target_input),
-            "--timeout",
-            str(timeout),
-            "--continue-on-errors",
-            "--results",
-            str(out_dir),
-            "--sarif",
-            "--json",
-        ]
-        if runtime_mode:
-            command.append("--runtime")
-        return _stream_process(command, cwd=resolved_smartbugs_dir)
-    finally:
-        if temp_runtime_dir is not None:
-            temp_runtime_dir.cleanup()
+            contract_path,
+            out_dir,
+            target_root=target_root,
+            smartbugs_dir=smartbugs_dir,
+            timeout=timeout,
+            input_kind=input_kind,
+            compilation_bundle=compilation_bundle,
+            logical_input_id=logical_input_id,
+        ) as invocation:
+            return _stream_process(
+                invocation.command,
+                cwd=invocation.cwd,
+                env=invocation.env,
+            )
+    except (OSError, RuntimeError) as exc:
+        print(f"[warn] SmartBugs input preparation failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def _adapter_worker_main() -> int:
+    """Run one adapter in an isolated process group from a private stdin request."""
+    try:
+        request = json.load(sys.stdin)
+        ready_path = request.get("ready_path")
+        if ready_path:
+            Path(ready_path).touch()
+        raw_bundle = request.get("compilation_bundle")
+        bundle = (
+            Stage3CompilationBundle.model_validate(raw_bundle)
+            if isinstance(raw_bundle, dict)
+            else None
+        )
+        return _run_smartbugs_tool(
+            str(request["tool_id"]),
+            Path(request["contract_path"]),
+            Path(request["out_dir"]),
+            target_root=Path(request["target_root"]),
+            smartbugs_dir=(
+                Path(request["smartbugs_dir"])
+                if request.get("smartbugs_dir")
+                else None
+            ),
+            timeout=request["timeout"],
+            gptscan_timeout=int(request["gptscan_timeout"]),
+            openai_api_key=str(request.get("openai_api_key") or ""),
+            openai_api_base=str(request.get("openai_api_base") or ""),
+            input_kind=str(request.get("input_kind") or "sol"),
+            compilation_bundle=bundle,
+            logical_input_id=str(request.get("logical_input_id") or "") or None,
+        )
+    except Exception as exc:
+        print(
+            f"[warn] adapter worker failed: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+        return 1
+
+
+def _sanitized_adapter_env() -> dict[str, str]:
+    """Remove OpenAI settings from the generic worker environment."""
+    env = os.environ.copy()
+    for name in list(env):
+        if "OPENAI" in name.upper():
+            env.pop(name, None)
+    return env
+
+
+def _run_adapter_with_deadline(
+    tool_id: str,
+    contract_path: Path,
+    out_dir: Path,
+    *,
+    target_root: Path,
+    smartbugs_dir: Optional[Path],
+    timeout: float,
+    gptscan_timeout: int,
+    openai_api_key: str,
+    openai_api_base: str,
+    mapping: dict[tuple[str, str], str] | None = None,
+    quarantine_root: Path,
+    input_kind: str | None = None,
+    compilation_bundle: Stage3CompilationBundle | None = None,
+    logical_input_id: str | None = None,
+) -> int:
+    """Enforce one outer deadline around the complete adapter implementation."""
+    if not remove_or_quarantine_tree(out_dir, quarantine_root):
+        print(f"[warn] output cleanup failed tool={tool_id}", file=sys.stderr)
+        return OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"lakes_{tool_id}_attempt_") as tmp:
+        staged_out = Path(tmp) / "result"
+        ready_path = Path(tmp) / "worker.ready"
+        request = {
+            "tool_id": tool_id,
+            "contract_path": str(contract_path),
+            "out_dir": str(staged_out),
+            "target_root": str(target_root),
+            "smartbugs_dir": str(smartbugs_dir) if smartbugs_dir is not None else None,
+            "timeout": max(1, int(math.ceil(float(timeout)))),
+            "gptscan_timeout": gptscan_timeout,
+            "ready_path": str(ready_path),
+            "input_kind": input_kind or classify_target_input(contract_path) or "sol",
+            "logical_input_id": logical_input_id,
+        }
+        if compilation_bundle is not None:
+            request["compilation_bundle"] = compilation_bundle.model_dump(mode="json")
+        if tool_id == "gptscan":
+            request["openai_api_key"] = openai_api_key
+            request["openai_api_base"] = openai_api_base
+        command = [sys.executable, "-m", "toolrank.runner", _ADAPTER_WORKER_ARG]
+        completed = run_process_with_deadline(
+            command,
+            timeout_seconds=timeout,
+            cwd=_REPO_ROOT,
+            input_text=json.dumps(request),
+            capture_output=False,
+            display_command=command,
+            ready_file=ready_path,
+            env=_sanitized_adapter_env(),
+        )
+        if completed.timed_out:
+            print(
+                f"[warn] outer tool timeout tool={tool_id} timeout_seconds={timeout}",
+                file=sys.stderr,
+            )
+            return 124
+        if completed.returncode != 0:
+            return completed.returncode
+        result_path = find_valid_report(staged_out)
+        if result_path is None:
+            print(f"[warn] invalid current-run report tool={tool_id}", file=sys.stderr)
+            return 1
+        if not _write_enriched_report(result_path, tool_id, mapping or {}):
+            print(f"[warn] report enrichment failed tool={tool_id}", file=sys.stderr)
+            return 1
+        if not promote_valid_report_tree(
+            staged_out,
+            out_dir,
+            quarantine_root=quarantine_root,
+        ):
+            print(f"[warn] report promotion failed tool={tool_id}", file=sys.stderr)
+            return (
+                OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                if out_dir.exists()
+                else 1
+            )
+        return 0
 
 
 def _run_one_tool_for_contract(
@@ -720,35 +1098,22 @@ def _run_one_tool_for_contract(
     target_root: Path,
     results_root: Path,
     mapping: dict[tuple[str, str], str],
-    known_reports_root: Optional[Path],
     smartbugs_dir: Optional[Path],
-    timeout: int,
+    timeout: float,
     gptscan_timeout: int,
     openai_api_key: str,
     openai_api_base: str,
-) -> tuple[str, int]:
+    quarantine_root: Path,
+    input_kind: str | None = None,
+    compilation_bundle: Stage3CompilationBundle | None = None,
+    logical_input_id: str | None = None,
+) -> tuple[str, int, float]:
     rel = _relative_contract_path(contract_path, target_root)
     tool_id = _map_tool_name(tool_name)
     out_dir = results_root / tool_id / rel
-    result_path = _find_result_json(out_dir)
-    if result_path and _write_enriched_report(result_path, tool_id, mapping):
-        print(f"[reuse] report found: {result_path}")
-        return tool_id, 0
-
-    if _reuse_known_report(
-        known_reports_root=known_reports_root,
-        tool_id=tool_id,
-        contract_path=contract_path,
-        target_root=target_root,
-        out_dir=out_dir,
-        mapping=mapping,
-    ):
-        return tool_id, 0
-
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    rc = _run_smartbugs_tool(
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    rc = _run_adapter_with_deadline(
         tool_id,
         contract_path,
         out_dir,
@@ -758,15 +1123,25 @@ def _run_one_tool_for_contract(
         gptscan_timeout=gptscan_timeout,
         openai_api_key=openai_api_key,
         openai_api_base=openai_api_base,
+        mapping=mapping,
+        quarantine_root=quarantine_root,
+        input_kind=input_kind or classify_target_input(contract_path) or "sol",
+        compilation_bundle=compilation_bundle,
+        logical_input_id=logical_input_id,
     )
     if rc != 0:
         print(f"[warn] tool run failed tool={tool_id} exit_code={rc}", file=sys.stderr)
-        return tool_id, rc
+        return tool_id, rc, (time.monotonic() - started) / 60.0
     result_path = _find_result_json(out_dir)
     if result_path is None or not _write_enriched_report(result_path, tool_id, mapping):
+        cleanup_ok = remove_or_quarantine_tree(out_dir, quarantine_root)
         print(f"[warn] result.json missing or invalid for tool={tool_id}", file=sys.stderr)
-        return tool_id, 1
-    return tool_id, 0
+        return (
+            tool_id,
+            1 if cleanup_ok else OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+            (time.monotonic() - started) / 60.0,
+        )
+    return tool_id, 0, (time.monotonic() - started) / 60.0
 
 
 def _run_one_contract(
@@ -776,33 +1151,63 @@ def _run_one_contract(
     results_root: Path,
     selected_tools: list[str],
     mapping: dict[tuple[str, str], str],
-    known_reports_root: Optional[Path],
     smartbugs_dir: Optional[Path],
-    timeout: int,
+    timeout: float,
     gptscan_timeout: int,
     openai_api_key: str,
     openai_api_base: str,
     jobs: int,
-) -> int:
+    quarantine_root: Path,
+    input_kind: str | None = None,
+    compilation_bundle: Stage3CompilationBundle | None = None,
+    logical_input_id: str | None = None,
+) -> tuple[int, dict[str, ToolExecutionStatus]]:
     exit_code = 0
+    statuses: dict[str, ToolExecutionStatus] = {}
     if jobs <= 1 or len(selected_tools) <= 1:
         for tool_name in selected_tools:
-            _tool_id, rc = _run_one_tool_for_contract(
+            _tool_id, rc, runtime_minutes = _run_one_tool_for_contract(
                 tool_name,
                 contract_path,
                 target_root=target_root,
                 results_root=results_root,
                 mapping=mapping,
-                known_reports_root=known_reports_root,
                 smartbugs_dir=smartbugs_dir,
                 timeout=timeout,
                 gptscan_timeout=gptscan_timeout,
                 openai_api_key=openai_api_key,
                 openai_api_base=openai_api_base,
+                quarantine_root=quarantine_root,
+                input_kind=input_kind,
+                compilation_bundle=compilation_bundle,
+                logical_input_id=logical_input_id,
             )
             if rc != 0:
-                exit_code = rc
-        return exit_code
+                exit_code = (
+                    OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                    if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                    or exit_code == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                    else rc
+                )
+                statuses[_tool_id] = ToolExecutionStatus(
+                    status="TIMEOUT" if rc == 124 else "FAIL",
+                    runtime_minutes=runtime_minutes,
+                    return_code=rc,
+                    detail=(
+                        "output cleanup failed"
+                        if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                        else ""
+                    ),
+                )
+            else:
+                statuses[_tool_id] = ToolExecutionStatus(
+                    status="SUCCESS",
+                    runtime_minutes=runtime_minutes,
+                    return_code=0,
+                )
+            if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE:
+                break
+        return exit_code, statuses
 
     max_workers = min(jobs, len(selected_tools))
     print(f"[parallel] jobs={max_workers} tools={','.join(selected_tools)}")
@@ -815,26 +1220,60 @@ def _run_one_contract(
                 target_root=target_root,
                 results_root=results_root,
                 mapping=mapping,
-                known_reports_root=known_reports_root,
                 smartbugs_dir=smartbugs_dir,
                 timeout=timeout,
                 gptscan_timeout=gptscan_timeout,
                 openai_api_key=openai_api_key,
                 openai_api_base=openai_api_base,
+                quarantine_root=quarantine_root,
+                input_kind=input_kind,
+                compilation_bundle=compilation_bundle,
+                logical_input_id=logical_input_id,
             ): tool_name
             for tool_name in selected_tools
         }
         for future in as_completed(futures):
             tool_name = futures[future]
             try:
-                _tool_id, rc = future.result()
+                _tool_id, rc, runtime_minutes = future.result()
             except Exception as exc:  # pragma: no cover - defensive guard around external tools.
                 print(f"[warn] tool run crashed tool={tool_name} error={exc}", file=sys.stderr)
-                exit_code = 1
+                if exit_code != OUTPUT_CLEANUP_FAILURE_RETURN_CODE:
+                    exit_code = 1
+                statuses[_map_tool_name(tool_name)] = ToolExecutionStatus(
+                    status="FAIL", return_code=1, detail=str(exc)
+                )
                 continue
             if rc != 0:
-                exit_code = rc
-    return exit_code
+                exit_code = (
+                    OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                    if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                    or exit_code == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                    else rc
+                )
+                statuses[_tool_id] = ToolExecutionStatus(
+                    status="TIMEOUT" if rc == 124 else "FAIL",
+                    runtime_minutes=runtime_minutes,
+                    return_code=rc,
+                    detail=(
+                        "output cleanup failed"
+                        if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                        else ""
+                    ),
+                )
+            else:
+                statuses[_tool_id] = ToolExecutionStatus(
+                    status="SUCCESS",
+                    runtime_minutes=runtime_minutes,
+                    return_code=0,
+                )
+    return exit_code, statuses
+
+
+def _aggregate_tool_status_history(
+    history: Sequence[ToolExecutionStatus],
+) -> ToolExecutionStatus:
+    return aggregate_tool_status_history(history)
 
 
 def _write_fusion_plan(
@@ -848,9 +1287,51 @@ def _write_fusion_plan(
     payload = {
         "selected_tools": selected_tools,
         "primary_tool": primary_tool,
-        "tool_categories": tool_categories,
+        "category_owners": {
+            category: [primary_tool, tool]
+            for tool, categories in tool_categories.items()
+            if tool != primary_tool and categories is not None
+            for category in categories
+        },
     }
     (results_root / "fusion_plan.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _write_tool_status_manifest(
+    results_root: Path,
+    statuses: dict[str, ToolExecutionStatus],
+) -> None:
+    results_root.mkdir(parents=True, exist_ok=True)
+    (results_root / "tool_run_statuses.json").write_text(
+        json.dumps(
+            {
+                tool: status.model_dump(mode="json")
+                for tool, status in statuses.items()
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _compilation_failure_statuses(
+    tools: Sequence[str],
+    bundle: Stage3CompilationBundle,
+) -> dict[str, ToolExecutionStatus]:
+    reason = bundle.manifest.failure_reason
+    detail = (
+        f"compilation {reason.code}: {reason.detail}" if reason is not None else "compilation failed"
+    )
+    return {
+        tool: ToolExecutionStatus(
+            status="NOT_RUN",
+            detail=detail,
+            artifact_consumption=bundle.tool_consumption.get(tool),
+        )
+        for tool in tools
+    }
 
 
 def _lakes_output_dir(results_root: Path) -> Path:
@@ -874,17 +1355,18 @@ def _composition_from_runner_inputs(
     primary_tool: str,
     tool_categories: dict[str, list[str] | None],
 ) -> CompositionPlan:
-    category_assignments: dict[str, str] = {}
+    category_owners: dict[str, list[str]] = {}
     for tool_id, categories in tool_categories.items():
         if tool_id == primary_tool or categories is None:
             continue
         for category in categories:
-            category_assignments[category] = tool_id
+            category_owners[category] = [primary_tool, tool_id]
     return CompositionPlan(
         selected_tool_ids=selected_tools,
-        anchor_tool_id=primary_tool,
+        primary_tool_id=primary_tool,
         complementary_tool_ids=[tool for tool in selected_tools if tool != primary_tool],
-        category_assignments=category_assignments,
+        estimated_plan_runtime_minutes=0.0,
+        category_owners=category_owners,
     )
 
 
@@ -898,21 +1380,17 @@ def _build_fused_report_from_run(
     *,
     results_root: Path,
     composition: CompositionPlan,
+    tool_statuses: dict[str, ToolExecutionStatus],
 ) -> FusedReport:
     raw_by_tool = load_per_tool_findings_from_run_dir(results_root, set(composition.selected_tool_ids))
-    anchor_findings = _raw_findings_to_finding(
-        composition.anchor_tool_id,
-        raw_by_tool.get(composition.anchor_tool_id, []),
-    )
-    complement_findings = {
+    findings_by_tool = {
         tool_id: _raw_findings_to_finding(tool_id, raw_findings)
         for tool_id, raw_findings in raw_by_tool.items()
-        if tool_id != composition.anchor_tool_id
     }
     return fuse_reports(
-        anchor_findings,
-        complement_findings,
+        findings_by_tool,
         composition,
+        tool_statuses=tool_statuses,
         findings_source="execution",
     )
 
@@ -934,6 +1412,18 @@ def _write_lakes_outputs(
         json.dumps(composition.model_dump(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    (lakes_dir / "tool_run_statuses.json").write_text(
+        json.dumps(
+            {
+                tool: status.model_dump(mode="json")
+                for tool, status in fused_report.tool_statuses.items()
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return lakes_dir
 
 
@@ -945,20 +1435,21 @@ def run_targets(
     primary_tool: str = "",
     tool_categories: str = "",
     smartbugs_dir: str | Path | None = None,
-    timeout: int = 1200,
+    timeout: float = 1200,
     gptscan_timeout: int = 600,
     openai_api_key: str = "",
     openai_api_base: str = "",
     jobs: int = 0,
     write_lakes_output: bool = True,
-    known_reports_dir: str | Path | None = None,
+    compilation_bundle: Stage3CompilationBundle | str | Path | None = None,
+    selected_tool_solc_ranges: dict[str, str] | None = None,
 ) -> int:
     target = Path(target_path).resolve()
     root = Path(results_root).resolve()
     if not target.exists():
         _die(f"Target path not found: {target}", 1)
     if timeout <= 0:
-        _die("--timeout must be a positive integer", 2)
+        _die("--timeout must be positive", 2)
     if gptscan_timeout <= 0:
         _die("--gptscan_timeout must be a positive integer", 2)
     if jobs < 0:
@@ -967,12 +1458,20 @@ def run_targets(
     if not tools:
         _die("No tools selected. Use --tool or --tools.", 1)
 
-    contracts = _iter_contracts(target)
-    if not contracts:
-        _die(f"No .sol files found: {target}", 1)
+    try:
+        target_inputs = _discover_target_inputs(target)
+    except ValueError as exc:
+        _die(f"Invalid source project: {exc}", 1)
+    if not target_inputs:
+        _die(f"No supported .sol/.bin/.hex inputs found: {target}", 1)
 
     mapped_primary = _map_tool_name(primary_tool) if primary_tool else _map_tool_name(tools[0])
-    mapped_tools = [_map_tool_name(tool) for tool in tools]
+    mapped_tools = list(dict.fromkeys(_map_tool_name(tool) for tool in tools))
+    if mapped_primary in mapped_tools:
+        mapped_tools.remove(mapped_primary)
+    mapped_tools.insert(0, mapped_primary)
+    if jobs != 0 and jobs < len(mapped_tools):
+        _die("--jobs must provide one worker per selected tool", 2)
     effective_jobs = len(mapped_tools) if jobs == 0 else jobs
     parsed_tool_categories = _parse_tool_category_filters(tool_categories)
     composition = _composition_from_runner_inputs(
@@ -985,31 +1484,136 @@ def run_targets(
 
     mapping = _load_mapping()
     resolved_smartbugs_dir = Path(smartbugs_dir).resolve() if smartbugs_dir else None
-    known_reports_root = _resolve_known_reports_dir(target, known_reports_dir)
-    if known_reports_root is not None:
-        print(f"[known_reports] {known_reports_root}")
     tool_results_root = _tool_results_root(root, target, write_lakes_output=write_lakes_output)
+    quarantine_root = make_run_quarantine_root(tool_results_root)
+    if not clear_selected_run_artifacts(
+        tool_results_root,
+        mapped_tools,
+        quarantine_root=quarantine_root,
+    ):
+        print("[warn] selected-tool output cleanup failed", file=sys.stderr)
+        return OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+    if not remove_or_quarantine_tree(
+        tool_results_root / "compilation_manifest.json",
+        quarantine_root,
+    ):
+        print("[warn] compilation manifest cleanup failed", file=sys.stderr)
+        return OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+
+    if compilation_bundle is None:
+        bundle = build_compilation_bundle(
+            target,
+            mapped_tools,
+            selected_tool_solc_ranges=selected_tool_solc_ranges,
+        )
+    else:
+        try:
+            bundle = (
+                load_compilation_bundle(compilation_bundle)
+                if isinstance(compilation_bundle, (str, Path))
+                else compilation_bundle
+            )
+            if bundle.manifest.status != CompilationStatus.FAILED:
+                validate_compilation_bundle(bundle, target, mapped_tools)
+        except CompilationBundleError as exc:
+            bundle = failed_compilation_bundle(
+                target,
+                mapped_tools,
+                code=exc.code,
+                detail=exc.detail,
+            )
+    write_compilation_manifest(bundle, tool_results_root)
+    if bundle.manifest.status == CompilationStatus.FAILED:
+        statuses = _compilation_failure_statuses(mapped_tools, bundle)
+        _write_tool_status_manifest(tool_results_root, statuses)
+        reason = bundle.manifest.failure_reason
+        print(
+            f"[warn] compilation preflight failed: {reason.code if reason else 'unknown'}",
+            file=sys.stderr,
+        )
+        return (
+            124
+            if reason is not None and reason.code == "COMPILATION_TIMEOUT"
+            else COMPILATION_FAILURE_RETURN_CODE
+        )
     exit_code = 0
-    for index, contract in enumerate(contracts, start=1):
-        print(f"\n[batch] {index}/{len(contracts)} {contract}")
-        rc = _run_one_contract(
+    cleanup_failed = False
+    status_history: dict[str, list[ToolExecutionStatus]] = {
+        tool: [] for tool in mapped_tools
+    }
+    successful_shared_consumers: set[str] = set()
+    gptscan_source_dispatched = False
+    for index, target_input in enumerate(target_inputs, start=1):
+        contract = target_input.path
+        logical_input_id = _logical_input_id(contract, target)
+        print(
+            f"\n[batch] {index}/{len(target_inputs)} "
+            f"kind={target_input.kind} {contract}"
+        )
+        tools_for_input = mapped_tools
+        if target_input.kind == "sol" and gptscan_source_dispatched:
+            tools_for_input = [tool for tool in mapped_tools if tool != "gptscan"]
+        elif target_input.kind == "sol" and "gptscan" in mapped_tools:
+            gptscan_source_dispatched = True
+        if not tools_for_input:
+            continue
+        rc, contract_statuses = _run_one_contract(
             contract,
             target_root=target,
             results_root=tool_results_root,
-            selected_tools=mapped_tools,
+            selected_tools=tools_for_input,
             mapping=mapping,
-            known_reports_root=known_reports_root,
             smartbugs_dir=resolved_smartbugs_dir,
             timeout=timeout,
             gptscan_timeout=gptscan_timeout,
             openai_api_key=openai_api_key,
             openai_api_base=openai_api_base,
             jobs=effective_jobs,
+            quarantine_root=quarantine_root,
+            input_kind=target_input.kind,
+            compilation_bundle=bundle,
+            logical_input_id=logical_input_id,
         )
         if rc != 0:
-            exit_code = rc
+            exit_code = (
+                OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                or exit_code == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                else rc
+            )
+        if rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE:
+            cleanup_failed = True
+        for tool, status in contract_statuses.items():
+            status_history.setdefault(tool, []).append(status)
+            if (
+                status.status == "SUCCESS"
+                and target_input.kind == "sol"
+                and bundle.route_for(tool, logical_input_id) is not None
+            ):
+                successful_shared_consumers.add(tool)
+        if cleanup_failed:
+            break
+
+    final_statuses: dict[str, ToolExecutionStatus] = {}
+    for tool in mapped_tools:
+        history = status_history.get(tool, [])
+        consumption = bundle.tool_consumption.get(tool)
+        if consumption is not None:
+            consumption = consumption.model_copy(
+                update={"consumed": tool in successful_shared_consumers}
+            )
+        final_statuses[tool] = _aggregate_tool_status_history(history).model_copy(
+            update={"artifact_consumption": consumption}
+        )
+    _write_tool_status_manifest(tool_results_root, final_statuses)
+    if cleanup_failed:
+        return OUTPUT_CLEANUP_FAILURE_RETURN_CODE
     if write_lakes_output:
-        fused_report = _build_fused_report_from_run(results_root=tool_results_root, composition=composition)
+        fused_report = _build_fused_report_from_run(
+            results_root=tool_results_root,
+            composition=composition,
+            tool_statuses=final_statuses,
+        )
         lakes_dir = _write_lakes_outputs(root, target_path=target, composition=composition, fused_report=fused_report)
         print(f"[lakes_out] {lakes_dir / 'fused_report.json'}")
     return exit_code
@@ -1024,11 +1628,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--primary_tool", default="", help="Primary tool whose categories are kept by default.")
     parser.add_argument("--tool_categories", default="", help="Per-tool category ownership, e.g. slither:REENTRANCY|TIME_MANIPULATION.")
     parser.add_argument("--smartbugs-dir", default="", help="SmartBugs checkout directory. Defaults to LAKES_SMARTBUGS_DIR or auto-discovery.")
-    parser.add_argument("--timeout", type=int, default=1200, help="Per-tool timeout in seconds.")
+    parser.add_argument("--timeout", type=float, default=1200, help="Per-tool timeout in seconds.")
     parser.add_argument("--gptscan_timeout", type=int, default=600, help="GPTScan LLM timeout in seconds.")
-    parser.add_argument("--openai_api_key", default="", help="OpenAI API key for GPTScan.")
-    parser.add_argument("--openai_api_base", default="", help="OpenAI-compatible API base for GPTScan.")
-    parser.add_argument("--known-reports-dir", default=None, help="Reuse existing SmartBugs reports from this directory before running tools.")
     parser.add_argument(
         "--jobs",
         type=int,
@@ -1040,14 +1641,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run tools only. Used by LAKES when the engine writes the final LAKES_out files.",
     )
+    parser.add_argument(
+        "--compilation-bundle",
+        default="",
+        help="Validated Stage 3 bundle prepared by the parent execution process.",
+    )
+    parser.add_argument(
+        "--tool-solc-ranges",
+        default="",
+        help="Internal JSON map of selected tool IDs to Solidity ranges.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args == [_ADAPTER_WORKER_ARG]:
+        return _adapter_worker_main()
+    args = build_parser().parse_args(raw_args)
     tools = _parse_tools(args.tools)
     if not tools and args.tool:
         tools = [args.tool]
+    try:
+        tool_solc_ranges = (
+            json.loads(args.tool_solc_ranges) if args.tool_solc_ranges else None
+        )
+    except json.JSONDecodeError:
+        _die("--tool-solc-ranges must be a JSON object", 2)
+    if tool_solc_ranges is not None and not isinstance(tool_solc_ranges, dict):
+        _die("--tool-solc-ranges must be a JSON object", 2)
     return run_targets(
         args.contract_or_dir,
         args.results_root,
@@ -1057,11 +1679,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         smartbugs_dir=args.smartbugs_dir or None,
         timeout=args.timeout,
         gptscan_timeout=args.gptscan_timeout,
-        openai_api_key=args.openai_api_key,
-        openai_api_base=args.openai_api_base,
+        openai_api_key=_env_value("OPENAI_API_KEY"),
+        openai_api_base=_env_value("OPENAI_API_BASE", "OPENAI_BASE_URL"),
         jobs=args.jobs,
         write_lakes_output=not args.no_lakes_output,
-        known_reports_dir=args.known_reports_dir,
+        compilation_bundle=args.compilation_bundle or None,
+        selected_tool_solc_ranges=tool_solc_ranges,
     )
 
 

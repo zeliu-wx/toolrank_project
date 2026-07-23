@@ -1,6 +1,8 @@
 {
   "knowledge_base_type": "performance_context_db",
   "criteria": {
+    "runtime_unit": "seconds",
+    "runtime_basis_default": "per_contract",
     "loc_bins": [
       {
         "label": "0-100",
@@ -59,6 +61,625 @@
       }
     ]
   },
+  "runtime_literature_observations": [
+    {
+      "observation_id": "lit_gptscan_icse_2024_per_kloc",
+      "tool": "gptscan",
+      "paper_id": "paper_gptscan_icse_2024",
+      "title": "GPTScan: Detecting Logic Vulnerabilities in Smart Contracts by Combining GPT with Program Analysis",
+      "authors": [
+        "Yuqiang Sun",
+        "Daoyuan Wu",
+        "Yue Xue",
+        "Han Liu",
+        "Haijun Wang",
+        "Zhengzi Xu",
+        "Xiaofei Xie",
+        "Yang Liu"
+      ],
+      "year": 2024,
+      "venue": "46th IEEE/ACM International Conference on Software Engineering",
+      "doi": "10.1145/3597503.3639117",
+      "source_url": "https://daoyuan14.github.io/papers/ICSE24_GPTScan.pdf",
+      "evidence_locator": "PDF pp.8-9, RQ4 and Table 5",
+      "tool_identity": "Exact paper implementation using GPT-3.5-turbo with a 4K context and temperature zero; dated model snapshot not reported.",
+      "dataset": "Top200, Web3Bugs, and DefiHacks: 388 projects, 3,157 Solidity files, and 472,024 LoC.",
+      "input_profile": "Multi-file Solidity projects; compiler-version distribution not reported.",
+      "hardware": null,
+      "reported_value": 14.39,
+      "reported_unit": "seconds",
+      "reported_basis": "per_kloc",
+      "runtime_seconds": 14.39,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_kloc",
+      "normalization_formula": "Paper-reported 6793.35 seconds / 472.02 KLoC = 14.39 seconds/KLoC.",
+      "attempted_count": 388,
+      "success_count": null,
+      "timeout_count": null,
+      "compilation_failure_count": 17,
+      "failure_count": null,
+      "denominator_unit": "project",
+      "timeout_policy": null,
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "SUCCESS_DENOMINATOR_NOT_REPORTED",
+        "COMPILER_SCENE_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_gptscan_heimdallr_2026_per_kloc",
+      "tool": "gptscan",
+      "paper_id": "paper_gptscan_heimdallr_2026",
+      "title": "An Effective and Cost-Efficient Agentic Framework for Ethereum Smart Contract Auditing",
+      "authors": [
+        "Xiaohui Hu",
+        "Wun Yu Chan",
+        "Yuejie Shi",
+        "Qumeng Sun",
+        "Wei-Cheng Wang",
+        "Chiachih Wu",
+        "Haoyu Wang",
+        "Ningyu He"
+      ],
+      "year": 2026,
+      "venue": "arXiv preprint 2601.17833",
+      "doi": null,
+      "source_url": "https://arxiv.org/pdf/2601.17833",
+      "evidence_locator": "PDF p.8, Table 2",
+      "tool_identity": "Open-source GPTScan baseline deployed locally; exact commit and GPT model snapshot not reported.",
+      "dataset": "D3: 30 high-reward Sherlock contest projects.",
+      "input_profile": "Solidity projects; compiler versions and successful-run count not reported.",
+      "hardware": "Mac Studio with Apple M3 Ultra, 32-core CPU, 32-core GPU, and 512 GB unified memory.",
+      "reported_value": 293.0,
+      "reported_unit": "seconds",
+      "reported_basis": "per_10_kloc",
+      "runtime_seconds": 29.3,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_kloc",
+      "normalization_formula": "293 seconds / 10 KLoC = 29.3 seconds/KLoC.",
+      "attempted_count": 30,
+      "success_count": null,
+      "timeout_count": null,
+      "compilation_failure_count": null,
+      "failure_count": null,
+      "denominator_unit": "project",
+      "timeout_policy": null,
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "SUCCESS_DENOMINATOR_NOT_REPORTED",
+        "EXACT_TOOL_MODEL_SNAPSHOT_MISSING",
+        "COMPILER_SCENE_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_honeybadger_usenix_2019_per_contract",
+      "tool": "honeybadger",
+      "paper_id": "paper_honeybadger_usenix_2019",
+      "title": "The Art of The Scam: Demystifying Honeypots in Ethereum Smart Contracts",
+      "authors": [
+        "Christof Ferreira Torres",
+        "Mathis Steichen",
+        "Radu State"
+      ],
+      "year": 2019,
+      "venue": "28th USENIX Security Symposium",
+      "doi": null,
+      "source_url": "https://www.usenix.org/system/files/sec19-torres.pdf",
+      "evidence_locator": "Section 5.1, PDF p.9 / proceedings p.1599, first paragraph",
+      "tool_identity": "HoneyBadger research implementation with Geth EVM 1.8.16, Solidity 0.4.25, and Z3 4.7.1; release commit not reported.",
+      "dataset": "151,935 unique deployed Ethereum contract bytecodes deduplicated from 2,019,434 deployments.",
+      "input_profile": "Deployed EVM bytecode.",
+      "hardware": "Ten-node cluster; each node used two 12-core Intel Xeon L5640 CPUs.",
+      "reported_value": 142.0,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 142.0,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Direct paper-reported mean of 142 seconds per analyzed contract.",
+      "attempted_count": 151935,
+      "success_count": 149603,
+      "timeout_count": 2332,
+      "compilation_failure_count": null,
+      "failure_count": null,
+      "denominator_unit": "contract",
+      "timeout_policy": "One second per Z3 request and 30 minutes global symbolic-execution time per contract.",
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "TIMEOUT_CENSORED_MEAN",
+        "CANONICAL_SCENE_IDENTITY_MISSING",
+        "COMPATIBLE_DATASET_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_honeybadger_icse_2020_per_contract",
+      "tool": "honeybadger",
+      "paper_id": "paper_honeybadger_icse_2020",
+      "title": "Empirical Review of Automated Analysis Tools on 47,587 Ethereum Smart Contracts",
+      "authors": [
+        "Thomas Durieux",
+        "João F. Ferreira",
+        "Rui Abreu",
+        "Pedro Cruz"
+      ],
+      "year": 2020,
+      "venue": "42nd International Conference on Software Engineering",
+      "doi": "10.1145/3377811.3380364",
+      "source_url": "https://arxiv.org/pdf/1910.10601",
+      "evidence_locator": "Section 3.3, Table 8, PDF p.8 / proceedings p.537",
+      "tool_identity": "SmartBugs-integrated HoneyBadger; exact HoneyBadger commit not reported.",
+      "dataset": "sbwild: 47,518 unique Etherscan Solidity contracts totaling 9,693,457 LoC.",
+      "input_profile": "Solidity source through SmartBugs, including wrapper, compilation, cleanup, and parsing overhead.",
+      "hardware": "Three Scaleway 32-vCPU/128-GB servers and three Google Cloud 32-vCPU/30-GB servers.",
+      "reported_value": 98.0,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 98.0,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Reported 00:01:38 = 98 seconds per contract; the parallel wall-time total is not divided by attempts.",
+      "attempted_count": 47518,
+      "success_count": null,
+      "timeout_count": 0,
+      "compilation_failure_count": null,
+      "failure_count": null,
+      "denominator_unit": "contract",
+      "timeout_policy": "30 minutes per tool-contract analysis; partial results were collected.",
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "SUCCESS_DENOMINATOR_NOT_ITEMIZED",
+        "CANONICAL_SCENE_IDENTITY_MISSING",
+        "COMPATIBLE_PROFILE_SUPPORT_NOT_ESTABLISHED",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_honeybadger_daiict_2023_per_contract",
+      "tool": "honeybadger",
+      "paper_id": "paper_honeybadger_daiict_2023",
+      "title": "A Static Analysis Approach for Ethereum Smart Contracts",
+      "authors": [
+        "Vaishnavi"
+      ],
+      "year": 2023,
+      "venue": "M.Tech. thesis, Dhirubhai Ambani Institute of Information and Communication Technology",
+      "doi": null,
+      "source_url": "https://ir.daiict.ac.in/server/api/core/bitstreams/f6210523-fc16-4a08-b3ce-3da8c18a8be5/content",
+      "evidence_locator": "Chapter 5, Section 5.4.2, Table 5.5, PDF p.76 / thesis p.65",
+      "tool_identity": "SmartBugs-integrated HoneyBadger; exact commit not reported.",
+      "dataset": "69 SB-curated contracts plus 3,031 randomly selected SB-wild contracts.",
+      "input_profile": "Mixed SmartBugs source/bytecode adapter evaluation across five vulnerability categories.",
+      "hardware": "Single machine; detailed hardware not reported in the runtime section.",
+      "reported_value": 72.0,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 72.0,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Reported 00:01:12 = 72 seconds per contract; displayed campaign totals do not replay to this mean.",
+      "attempted_count": 3100,
+      "success_count": null,
+      "timeout_count": null,
+      "compilation_failure_count": null,
+      "failure_count": null,
+      "denominator_unit": "contract",
+      "timeout_policy": "SB-curated used both 30-minute and run-to-halt regimes; SB-wild used no time budget, and the table does not identify the owning regime.",
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "MIXED_TIMEOUT_REGIME",
+        "MEAN_TOTAL_INCONSISTENCY",
+        "COMPILER_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_honeybadger_ijist_2025_per_contract",
+      "tool": "honeybadger",
+      "paper_id": "paper_honeybadger_ijist_2025",
+      "title": "A Comparative Evaluating Auditing Tools for Unverified Smart Contracts on Ethereum Blockchain",
+      "authors": [
+        "Nashaib Akbar",
+        "Muhammad Saleem Vighio"
+      ],
+      "year": 2025,
+      "venue": "International Journal of Innovations in Science and Technology, vol. 7, CSET special issue",
+      "doi": null,
+      "source_url": "https://journal.50sea.com/index.php/IJIST/article/download/1364/1869/15093",
+      "evidence_locator": "RQ2 and Table 6, PDF p.8 / journal p.92",
+      "tool_identity": "SmartBugs-integrated HoneyBadger over runtime bytecode; exact commit not reported.",
+      "dataset": "353 unverified ERC-20 runtime bytecodes plus 310 blacklisted unverified ERC-20 runtime bytecodes.",
+      "input_profile": "Runtime bytecode.",
+      "hardware": null,
+      "reported_value": 2.28,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 2.28,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Use the precise prose mean of 2.28 seconds per contract; the rounded table total is retained as a limitation.",
+      "attempted_count": 663,
+      "success_count": 663,
+      "timeout_count": null,
+      "compilation_failure_count": null,
+      "failure_count": 0,
+      "denominator_unit": "contract",
+      "timeout_policy": null,
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "TIMEOUT_POLICY_MISSING",
+        "MEAN_TOTAL_ROUNDING_INCONSISTENCY",
+        "COMPILER_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_sailfish_sp_2022_per_contract",
+      "tool": "sailfish",
+      "paper_id": "paper_sailfish_sp_2022",
+      "title": "SAILFISH: Vetting Smart Contract State-Inconsistency Bugs in Seconds",
+      "authors": [
+        "Priyanka Bose",
+        "Dipanjan Das",
+        "Yanju Chen",
+        "Yu Feng",
+        "Christopher Kruegel",
+        "Giovanni Vigna"
+      ],
+      "year": 2022,
+      "venue": "2022 IEEE Symposium on Security and Privacy",
+      "doi": "10.1109/SP46214.2022.9833721",
+      "source_url": "https://arxiv.org/pdf/2104.08638",
+      "evidence_locator": "PDF p.12, Table IV and Section VIII-C",
+      "tool_identity": "Exact SAILFISH paper implementation; commit not reported.",
+      "dataset": "89,853 deduplicated Solidity contracts from the Etherscan full dataset.",
+      "input_profile": "Solidity source; contracts requiring Solidity before 0.3.x and Vyper contracts were excluded, but no retained compiler histogram is reported.",
+      "hardware": "Six Ubuntu 18.04.3 servers, each with Intel Xeon E5-2690 v2, 40 cores, and 256 GB memory.",
+      "reported_value": 30.79,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 30.79,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Direct paper-reported full-dataset mean of 30.79 seconds per contract.",
+      "attempted_count": 89853,
+      "success_count": 85247,
+      "timeout_count": 1211,
+      "compilation_failure_count": null,
+      "failure_count": 3395,
+      "denominator_unit": "contract",
+      "timeout_policy": "20 minutes per contract.",
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "MEAN_DENOMINATOR_NOT_EXPLICIT",
+        "COMPILER_BUCKET_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_sailfish_usenix_2023_per_contract",
+      "tool": "sailfish",
+      "paper_id": "paper_sailfish_usenix_2023",
+      "title": "Smart Learning to Find Dumb Contracts",
+      "authors": [
+        "Tamer Abdelaziz",
+        "Aquinas Hobor"
+      ],
+      "year": 2023,
+      "venue": "32nd USENIX Security Symposium",
+      "doi": null,
+      "source_url": "https://www.usenix.org/system/files/usenixsecurity23-abdelaziz.pdf",
+      "evidence_locator": "PDF p.2, Figure 1; extended PDF pp.17-18, Tables 5-6",
+      "tool_identity": "SAILFISH release identified by year 2022; exact version or commit not reported.",
+      "dataset": "Elysium source subset, Reentrancy benchmark, and SolidiFI reentrancy subset: 975 attempted contracts.",
+      "input_profile": "Lightly cleaned and sometimes upgraded Solidity source; compiler distribution not reported.",
+      "hardware": "12-core 3.2 GHz Intel Core i7-8700 desktop with 16 GB memory.",
+      "reported_value": 10.9,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 10.9,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Direct Figure 1 value of 10.9 seconds per contract; no campaign total is reconstructed.",
+      "attempted_count": 975,
+      "success_count": 844,
+      "timeout_count": null,
+      "compilation_failure_count": null,
+      "failure_count": 131,
+      "denominator_unit": "contract",
+      "timeout_policy": null,
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "RUNTIME_WEIGHTING_NOT_REPORTED",
+        "EXACT_TOOL_VERSION_MISSING",
+        "COMPILER_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_sailfish_fse_2025_per_contract",
+      "tool": "sailfish",
+      "paper_id": "paper_sailfish_fse_2025",
+      "title": "Detecting Smart Contract State-Inconsistency Bugs via Flow Divergence and Multiplex Symbolic Execution",
+      "authors": [
+        "Yinxi Liu",
+        "Wei Meng",
+        "Yinqian Zhang"
+      ],
+      "year": 2025,
+      "venue": "Proceedings of the ACM on Software Engineering, FSE 2025",
+      "doi": "10.1145/3715712",
+      "source_url": "https://yinqian.org/papers/fse25.pdf",
+      "evidence_locator": "PDF p.16, Scalability paragraph; outcomes in Table 1 on p.15",
+      "tool_identity": "SAILFISH baseline configured for reentrancy and transaction-ordering attacks; commit not reported.",
+      "dataset": "4,502 contracts from 174 active projects across 11 Etherscan networks.",
+      "input_profile": "Solidity source; unsupported compiler versions explain most non-analyzed cases, but the version distribution is absent.",
+      "hardware": "Four 24-core 2.10 GHz Intel Xeon Platinum 8160 CPUs running Debian 9.",
+      "reported_value": 29.34,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 29.34,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Direct reported mean of 29.34 seconds per analyzed contract.",
+      "attempted_count": 4502,
+      "success_count": 1484,
+      "timeout_count": 18,
+      "compilation_failure_count": null,
+      "failure_count": 3000,
+      "denominator_unit": "contract",
+      "timeout_policy": "20 minutes per contract.",
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "NON_ANALYZED_FAILURE_TYPES_NOT_SEPARATED",
+        "COMPILER_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    },
+    {
+      "observation_id": "lit_vulhunter_tse_2023_per_contract",
+      "tool": "vulhunter",
+      "paper_id": "paper_vulhunter_tse_2023",
+      "title": "VulHunter: Hunting Vulnerable Smart Contracts at EVM Bytecode-Level via Multiple Instance Learning",
+      "authors": [
+        "Zhaoxuan Li",
+        "Siqi Lu",
+        "Rui Zhang",
+        "Ziming Zhao",
+        "Rujin Liang",
+        "Rui Xue",
+        "Wenhao Li",
+        "Fan Zhang",
+        "Sheng Gao"
+      ],
+      "year": 2023,
+      "venue": "IEEE Transactions on Software Engineering, vol. 49",
+      "doi": "10.1109/TSE.2023.3317209",
+      "source_url": "https://doi.org/10.1109/TSE.2023.3317209",
+      "evidence_locator": "Abstract, PDF p.1, sentence reporting 4.4 seconds per contract and zero-percent analysis failure",
+      "tool_identity": "Exact VulHunter research implementation; release commit not reported.",
+      "dataset": "RQ3 overhead sample of approximately 100 Ethereum contracts; exact table denominator was not re-verified.",
+      "input_profile": "EVM bytecode/runtime execution sequences; compiler profile not reported.",
+      "hardware": null,
+      "reported_value": 4.4,
+      "reported_unit": "seconds",
+      "reported_basis": "per_contract",
+      "runtime_seconds": 4.4,
+      "runtime_unit": "seconds",
+      "runtime_basis": "per_contract",
+      "normalization_formula": "Direct paper-reported mean of 4.4 seconds per contract; no aggregate total is reconstructed.",
+      "attempted_count": null,
+      "success_count": null,
+      "timeout_count": null,
+      "compilation_failure_count": null,
+      "failure_count": 0,
+      "denominator_unit": "contract",
+      "timeout_policy": null,
+      "independent": true,
+      "admitted_to_summary": true,
+      "scheduling_eligible": false,
+      "limitations": [
+        "SINGLE_SOURCE_ONLY",
+        "EXACT_SAMPLE_INTEGER_NOT_REVERIFIED",
+        "TIMEOUT_POLICY_MISSING",
+        "COMPILER_PROFILE_MISSING",
+        "DESCRIPTIVE_ONLY_NOT_SCHEDULABLE"
+      ]
+    }
+  ],
+  "runtime_literature_summaries": [
+    {
+      "summary_id": "summary_gptscan_per_kloc_v1",
+      "tool": "gptscan",
+      "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+      "runtime_basis": "per_kloc",
+      "runtime_unit": "seconds",
+      "constituent_observation_ids": [
+        "lit_gptscan_icse_2024_per_kloc",
+        "lit_gptscan_heimdallr_2026_per_kloc"
+      ],
+      "n": 2,
+      "formula": "(14.39 + 29.3) / 2",
+      "precision_decimal_places": 3,
+      "mean_seconds": 21.845,
+      "cross_paper_mean": true,
+      "inclusion_policy": "One independent exact paper-level mean per accepted GPTScan evaluation with normalized per-KLoC basis.",
+      "exclusions": [
+        "gptscan-intentchecker-2026: per_case basis",
+        "gptscan-airaclex-2025: no runtime and modified tool/model",
+        "gptscan-eguard-2025: no GPTScan runtime"
+      ],
+      "scheduling_eligible": false,
+      "limitations": [
+        "ONLY_TWO_COMPARABLE_PAPERS",
+        "HARDWARE_AND_DATASET_HETEROGENEOUS",
+        "COMPILER_SCENE_PROFILES_MISSING",
+        "DERIVED_SUMMARY_NOT_OBSERVED_P90_CANDIDATE"
+      ]
+    },
+    {
+      "summary_id": "summary_honeybadger_per_contract_v1",
+      "tool": "honeybadger",
+      "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+      "runtime_basis": "per_contract",
+      "runtime_unit": "seconds",
+      "constituent_observation_ids": [
+        "lit_honeybadger_usenix_2019_per_contract",
+        "lit_honeybadger_icse_2020_per_contract",
+        "lit_honeybadger_daiict_2023_per_contract",
+        "lit_honeybadger_ijist_2025_per_contract"
+      ],
+      "n": 4,
+      "formula": "(142 + 98 + 72 + 2.28) / 4",
+      "precision_decimal_places": 2,
+      "mean_seconds": 78.57,
+      "cross_paper_mean": true,
+      "inclusion_policy": "One independent exact paper-level HoneyBadger per-contract mean per empirical evaluation.",
+      "exclusions": [
+        "lightcross-2025: plot series without exact scalar",
+        "hybrid-quantum-2025: irreconcilable denominator and no independent rerun",
+        "ensemble-ml-2025: copied 98-second baseline",
+        "smartbugs2-2023: no verified HoneyBadger completion-time cell",
+        "domain-specific-2023: incomplete cell and denominator verification"
+      ],
+      "scheduling_eligible": false,
+      "limitations": [
+        "HARDWARE_DATASET_AND_INPUT_HETEROGENEOUS",
+        "TOOL_VERSIONS_MOSTLY_UNREPORTED",
+        "TIMEOUT_POLICIES_HETEROGENEOUS",
+        "DERIVED_SUMMARY_NOT_OBSERVED_P90_CANDIDATE"
+      ]
+    },
+    {
+      "summary_id": "summary_sailfish_per_contract_v1",
+      "tool": "sailfish",
+      "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+      "runtime_basis": "per_contract",
+      "runtime_unit": "seconds",
+      "constituent_observation_ids": [
+        "lit_sailfish_sp_2022_per_contract",
+        "lit_sailfish_usenix_2023_per_contract",
+        "lit_sailfish_fse_2025_per_contract"
+      ],
+      "n": 3,
+      "formula": "(30.79 + 10.9 + 29.34) / 3",
+      "precision_decimal_places": 7,
+      "mean_seconds": 23.6766667,
+      "cross_paper_mean": true,
+      "inclusion_policy": "One independent exact paper-level SAILFISH mean with individual-contract basis.",
+      "exclusions": [
+        "sailfish-nyx-2024: per contract-group basis",
+        "sailfish-smartrim-2026: cumulative campaign time without a tool-specific success denominator"
+      ],
+      "scheduling_eligible": false,
+      "limitations": [
+        "HARDWARE_DATASET_AND_VERSION_HETEROGENEOUS",
+        "FAILURE_AND_TIMEOUT_HANDLING_HETEROGENEOUS",
+        "COMPILER_SCENE_PROFILES_MISSING",
+        "DERIVED_SUMMARY_NOT_OBSERVED_P90_CANDIDATE"
+      ]
+    },
+    {
+      "summary_id": "summary_vulhunter_per_contract_identity_v1",
+      "tool": "vulhunter",
+      "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+      "runtime_basis": "per_contract",
+      "runtime_unit": "seconds",
+      "constituent_observation_ids": [
+        "lit_vulhunter_tse_2023_per_contract"
+      ],
+      "n": 1,
+      "formula": "4.4 / 1",
+      "precision_decimal_places": 1,
+      "mean_seconds": 4.4,
+      "cross_paper_mean": false,
+      "inclusion_policy": "The sole independently verified exact VulHunter completion-time mean; retained as an identity summary, not a cross-paper average.",
+      "exclusions": [
+        "klein-thesis-2025: no exact per-contract runtime cell",
+        "smartbugs-evaluations: no verified VulHunter completion-time cell"
+      ],
+      "scheduling_eligible": false,
+      "limitations": [
+        "SINGLE_SOURCE_IDENTITY_SUMMARY",
+        "EXACT_SAMPLE_INTEGER_NOT_REVERIFIED",
+        "COMPILER_PROFILE_MISSING",
+        "DERIVED_SUMMARY_NOT_OBSERVED_P90_CANDIDATE"
+      ]
+    },
+    {
+      "summary_id": "summary_smartian_null_v1",
+      "tool": "smartian",
+      "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+      "runtime_basis": null,
+      "runtime_unit": "seconds",
+      "constituent_observation_ids": [],
+      "n": 0,
+      "formula": "null (no admissible observations)",
+      "precision_decimal_places": null,
+      "mean_seconds": null,
+      "cross_paper_mean": false,
+      "inclusion_policy": "Require an exact end-to-end completion mean with a supported basis; campaign caps, components, throughput, and conditional time-to-bug are excluded.",
+      "exclusions": [
+        "smartian-ase-2021: campaign cap and component-only preprocessing",
+        "scanner-sp-2024: no numeric duration",
+        "mau-sp-2024: component microbenchmark and campaign cap",
+        "fuzzers-icse-2024: cap, throughput, and plot-only conditional time",
+        "ityfuzz-issta-2023: observation windows and timeout bounds"
+      ],
+      "scheduling_eligible": false,
+      "limitations": [
+        "NO_ADMISSIBLE_END_TO_END_COMPLETION_MEAN",
+        "NULL_IS_NOT_ZERO",
+        "CAMPAIGN_CAP_REMAINS_NON_SCHEDULABLE"
+      ]
+    },
+    {
+      "summary_id": "summary_mando_hgt_null_v1",
+      "tool": "mando-hgt",
+      "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+      "runtime_basis": null,
+      "runtime_unit": "seconds",
+      "constituent_observation_ids": [],
+      "n": 0,
+      "formula": "null (no admissible observations)",
+      "precision_decimal_places": null,
+      "mean_seconds": null,
+      "cross_paper_mean": false,
+      "inclusion_policy": "Require an exact end-to-end completion mean with a supported runtime basis and identifiable MANDO-HGT evaluation.",
+      "exclusions": [
+        "mando-hgt-msr-2023: no runtime reported",
+        "klein-thesis-2025: runtime fields not numerically aggregated or published",
+        "dualsvd-2026: plot-only approximate training/testing bars",
+        "oracal-2026: no MANDO-HGT runtime"
+      ],
+      "scheduling_eligible": false,
+      "limitations": [
+        "NO_ADMISSIBLE_RUNTIME_OBSERVATIONS",
+        "NULL_IS_NOT_ZERO",
+        "LITERATURE_TARGET_COULD_NOT_BE_PADDED_HONESTLY"
+      ]
+    }
+  ],
   "entries": [
     {
       "source_id": "1",
@@ -113,13 +734,13 @@
             "execution_time_avg": 24.4
           },
           "vulnerability_scores": {
-            "access_control": 0.5506,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.6357,
-            "reentrancy": 0.1646,
-            "time_manipulation": 0.3248,
-            "front_running": 0.4581,
-            "bad_randomness": 0.0167,
+            "access_control": "909/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "883/1389",
+            "reentrancy": "236/1434",
+            "time_manipulation": "370/1139",
+            "front_running": "1231/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -132,13 +753,13 @@
             "execution_time_avg": 15.5
           },
           "vulnerability_scores": {
-            "access_control": 0.791,
-            "arithmetic": 0.005,
-            "denial_of_service": 0.0497,
-            "reentrancy": 0.8563,
-            "time_manipulation": 0.9728,
-            "front_running": 0.0,
-            "bad_randomness": 0.25,
+            "access_control": "1306/1651",
+            "arithmetic": "10/1992",
+            "denial_of_service": "69/1389",
+            "reentrancy": "1228/1434",
+            "time_manipulation": "1108/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "15/60",
             "short_addresses": 0.0
           }
         },
@@ -151,13 +772,13 @@
             "execution_time_avg": 7.0
           },
           "vulnerability_scores": {
-            "access_control": 0.0345,
-            "arithmetic": 0.0005,
-            "denial_of_service": 0.0108,
-            "reentrancy": 0.1402,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0167,
+            "access_control": "57/1651",
+            "arithmetic": "1/1992",
+            "denial_of_service": "15/1389",
+            "reentrancy": "201/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "479/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -170,13 +791,13 @@
             "execution_time_avg": 527.7
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.1637,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0328,
-            "time_manipulation": 0.0035,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "326/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "47/1434",
+            "time_manipulation": "4/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -189,13 +810,13 @@
             "execution_time_avg": 1051.3
           },
           "vulnerability_scores": {
-            "access_control": 0.0,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "0/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "0/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -208,13 +829,13 @@
             "execution_time_avg": 540.7
           },
           "vulnerability_scores": {
-            "access_control": 0.1599,
-            "arithmetic": 0.0221,
-            "denial_of_service": 0.0014,
-            "reentrancy": 0.0683,
-            "time_manipulation": 0.1844,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "264/1651",
+            "arithmetic": "44/1992",
+            "denial_of_service": "2/1389",
+            "reentrancy": "98/1434",
+            "time_manipulation": "210/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -227,13 +848,13 @@
             "execution_time_avg": 32.1
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.0457,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0223,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "91/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "32/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -381,13 +1002,13 @@
             "execution_time_avg": 32.7
           },
           "vulnerability_scores": {
-            "access_control": 0.5506,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.6357,
-            "reentrancy": 0.1646,
-            "time_manipulation": 0.3248,
-            "front_running": 0.4581,
-            "bad_randomness": 0.0167,
+            "access_control": "909/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "883/1389",
+            "reentrancy": "236/1434",
+            "time_manipulation": "370/1139",
+            "front_running": "1231/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -400,13 +1021,13 @@
             "execution_time_avg": 17.9
           },
           "vulnerability_scores": {
-            "access_control": 0.791,
-            "arithmetic": 0.005,
-            "denial_of_service": 0.0497,
-            "reentrancy": 0.8563,
-            "time_manipulation": 0.9728,
-            "front_running": 0.0,
-            "bad_randomness": 0.25,
+            "access_control": "1306/1651",
+            "arithmetic": "10/1992",
+            "denial_of_service": "69/1389",
+            "reentrancy": "1228/1434",
+            "time_manipulation": "1108/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "15/60",
             "short_addresses": 0.0
           }
         },
@@ -419,13 +1040,13 @@
             "execution_time_avg": 4.8
           },
           "vulnerability_scores": {
-            "access_control": 0.0345,
-            "arithmetic": 0.0005,
-            "denial_of_service": 0.0108,
-            "reentrancy": 0.1402,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0167,
+            "access_control": "57/1651",
+            "arithmetic": "1/1992",
+            "denial_of_service": "15/1389",
+            "reentrancy": "201/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "479/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -438,13 +1059,13 @@
             "execution_time_avg": 1089.2
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.1637,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0328,
-            "time_manipulation": 0.0035,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "326/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "47/1434",
+            "time_manipulation": "4/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -457,13 +1078,13 @@
             "execution_time_avg": 2604.9
           },
           "vulnerability_scores": {
-            "access_control": 0.0,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "0/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "0/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -476,13 +1097,13 @@
             "execution_time_avg": 2104.3
           },
           "vulnerability_scores": {
-            "access_control": 0.1599,
-            "arithmetic": 0.0221,
-            "denial_of_service": 0.0014,
-            "reentrancy": 0.0683,
-            "time_manipulation": 0.1844,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "264/1651",
+            "arithmetic": "44/1992",
+            "denial_of_service": "2/1389",
+            "reentrancy": "98/1434",
+            "time_manipulation": "210/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -495,13 +1116,13 @@
             "execution_time_avg": 98.4
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.0457,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0223,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "91/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "32/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         }
@@ -638,13 +1259,13 @@
             "execution_time_avg": 21.3
           },
           "vulnerability_scores": {
-            "access_control": 0.5506,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.6357,
-            "reentrancy": 0.1646,
-            "time_manipulation": 0.3248,
-            "front_running": 0.4581,
-            "bad_randomness": 0.0167,
+            "access_control": "909/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "883/1389",
+            "reentrancy": "236/1434",
+            "time_manipulation": "370/1139",
+            "front_running": "1231/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -657,13 +1278,13 @@
             "execution_time_avg": 10.0
           },
           "vulnerability_scores": {
-            "access_control": 0.791,
-            "arithmetic": 0.005,
-            "denial_of_service": 0.0497,
-            "reentrancy": 0.8563,
-            "time_manipulation": 0.9728,
-            "front_running": 0.0,
-            "bad_randomness": 0.25,
+            "access_control": "1306/1651",
+            "arithmetic": "10/1992",
+            "denial_of_service": "69/1389",
+            "reentrancy": "1228/1434",
+            "time_manipulation": "1108/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "15/60",
             "short_addresses": 0.0
           }
         },
@@ -676,13 +1297,13 @@
             "execution_time_avg": 6.5
           },
           "vulnerability_scores": {
-            "access_control": 0.0345,
-            "arithmetic": 0.0005,
-            "denial_of_service": 0.0108,
-            "reentrancy": 0.1402,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0167,
+            "access_control": "57/1651",
+            "arithmetic": "1/1992",
+            "denial_of_service": "15/1389",
+            "reentrancy": "201/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "479/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -695,13 +1316,13 @@
             "execution_time_avg": 389.9
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.1637,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0328,
-            "time_manipulation": 0.0035,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "326/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "47/1434",
+            "time_manipulation": "4/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -714,13 +1335,13 @@
             "execution_time_avg": 1810.1
           },
           "vulnerability_scores": {
-            "access_control": 0.0,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "0/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "0/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -733,13 +1354,13 @@
             "execution_time_avg": 906.0
           },
           "vulnerability_scores": {
-            "access_control": 0.1599,
-            "arithmetic": 0.0221,
-            "denial_of_service": 0.0014,
-            "reentrancy": 0.0683,
-            "time_manipulation": 0.1844,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "264/1651",
+            "arithmetic": "44/1992",
+            "denial_of_service": "2/1389",
+            "reentrancy": "98/1434",
+            "time_manipulation": "210/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -752,13 +1373,13 @@
             "execution_time_avg": 34.9
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.0457,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0223,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "91/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "32/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         }
@@ -895,13 +1516,13 @@
             "execution_time_avg": 509.1
           },
           "vulnerability_scores": {
-            "access_control": 0.5506,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.6357,
-            "reentrancy": 0.1646,
-            "time_manipulation": 0.3248,
-            "front_running": 0.4581,
-            "bad_randomness": 0.0167,
+            "access_control": "909/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "883/1389",
+            "reentrancy": "236/1434",
+            "time_manipulation": "370/1139",
+            "front_running": "1231/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -914,13 +1535,13 @@
             "execution_time_avg": 33.7
           },
           "vulnerability_scores": {
-            "access_control": 0.791,
-            "arithmetic": 0.005,
-            "denial_of_service": 0.0497,
-            "reentrancy": 0.8563,
-            "time_manipulation": 0.9728,
-            "front_running": 0.0,
-            "bad_randomness": 0.25,
+            "access_control": "1306/1651",
+            "arithmetic": "10/1992",
+            "denial_of_service": "69/1389",
+            "reentrancy": "1228/1434",
+            "time_manipulation": "1108/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "15/60",
             "short_addresses": 0.0
           }
         },
@@ -933,13 +1554,13 @@
             "execution_time_avg": 5.0
           },
           "vulnerability_scores": {
-            "access_control": 0.0345,
-            "arithmetic": 0.0005,
-            "denial_of_service": 0.0108,
-            "reentrancy": 0.1402,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0167,
+            "access_control": "57/1651",
+            "arithmetic": "1/1992",
+            "denial_of_service": "15/1389",
+            "reentrancy": "201/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "479/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -952,13 +1573,13 @@
             "execution_time_avg": 144.4
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.1637,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0328,
-            "time_manipulation": 0.0035,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "326/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "47/1434",
+            "time_manipulation": "4/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -971,13 +1592,13 @@
             "execution_time_avg": 17398.0
           },
           "vulnerability_scores": {
-            "access_control": 0.0,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "0/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "0/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -990,13 +1611,13 @@
             "execution_time_avg": 1975.5
           },
           "vulnerability_scores": {
-            "access_control": 0.1599,
-            "arithmetic": 0.0221,
-            "denial_of_service": 0.0014,
-            "reentrancy": 0.0683,
-            "time_manipulation": 0.1844,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "264/1651",
+            "arithmetic": "44/1992",
+            "denial_of_service": "2/1389",
+            "reentrancy": "98/1434",
+            "time_manipulation": "210/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -1009,13 +1630,13 @@
             "execution_time_avg": 20.5
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.0457,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0223,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "91/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "32/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         }
@@ -1155,13 +1776,13 @@
             "execution_time_avg": 47.7
           },
           "vulnerability_scores": {
-            "access_control": 0.5506,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.6357,
-            "reentrancy": 0.1646,
-            "time_manipulation": 0.3248,
-            "front_running": 0.4581,
-            "bad_randomness": 0.0167,
+            "access_control": "909/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "883/1389",
+            "reentrancy": "236/1434",
+            "time_manipulation": "370/1139",
+            "front_running": "1231/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -1174,13 +1795,13 @@
             "execution_time_avg": 30.9
           },
           "vulnerability_scores": {
-            "access_control": 0.791,
-            "arithmetic": 0.005,
-            "denial_of_service": 0.0497,
-            "reentrancy": 0.8563,
-            "time_manipulation": 0.9728,
-            "front_running": 0.0,
-            "bad_randomness": 0.25,
+            "access_control": "1306/1651",
+            "arithmetic": "10/1992",
+            "denial_of_service": "69/1389",
+            "reentrancy": "1228/1434",
+            "time_manipulation": "1108/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "15/60",
             "short_addresses": 0.0
           }
         },
@@ -1193,13 +1814,13 @@
             "execution_time_avg": 164.7
           },
           "vulnerability_scores": {
-            "access_control": 0.0345,
-            "arithmetic": 0.0005,
-            "denial_of_service": 0.0108,
-            "reentrancy": 0.1402,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0167,
+            "access_control": "57/1651",
+            "arithmetic": "1/1992",
+            "denial_of_service": "15/1389",
+            "reentrancy": "201/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "479/2687",
+            "bad_randomness": "1/60",
             "short_addresses": 0.0
           }
         },
@@ -1212,13 +1833,13 @@
             "execution_time_avg": 11.1
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.1637,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0328,
-            "time_manipulation": 0.0035,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "326/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "47/1434",
+            "time_manipulation": "4/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -1231,13 +1852,13 @@
             "execution_time_avg": 2839.2
           },
           "vulnerability_scores": {
-            "access_control": 0.0,
-            "arithmetic": 0.0,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "0/1651",
+            "arithmetic": "0/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "0/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -1250,13 +1871,13 @@
             "execution_time_avg": 1924.2
           },
           "vulnerability_scores": {
-            "access_control": 0.1599,
-            "arithmetic": 0.0221,
-            "denial_of_service": 0.0014,
-            "reentrancy": 0.0683,
-            "time_manipulation": 0.1844,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "264/1651",
+            "arithmetic": "44/1992",
+            "denial_of_service": "2/1389",
+            "reentrancy": "98/1434",
+            "time_manipulation": "210/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         },
@@ -1269,13 +1890,13 @@
             "execution_time_avg": 13.8
           },
           "vulnerability_scores": {
-            "access_control": 0.0006,
-            "arithmetic": 0.0457,
-            "denial_of_service": 0.0,
-            "reentrancy": 0.0223,
-            "time_manipulation": 0.0,
-            "front_running": 0.0,
-            "bad_randomness": 0.0,
+            "access_control": "1/1651",
+            "arithmetic": "91/1992",
+            "denial_of_service": "0/1389",
+            "reentrancy": "32/1434",
+            "time_manipulation": "0/1139",
+            "front_running": "0/2687",
+            "bad_randomness": "0/60",
             "short_addresses": 0.0
           }
         }
@@ -1283,7 +1904,9 @@
     },
     {
       "source_id": "2.md",
-      "publication_date": null,
+      "publication_date": "2024-08-11",
+      "source_title": "Survey on Quality Assurance of Smart Contracts",
+      "source_reference": "arXiv:2311.00270v3",
       "dataset_profile": {
         "dataset_name": "Custom Benchmark Dataset",
         "solc": [
@@ -1385,19 +2008,57 @@
           "median_loc": 52.5,
           "avg_functions": 13.8,
           "avg_subcontracts": 2.9,
-          "vulnerability_categories": []
+          "vulnerability_categories": [
+            "reentrancy",
+            "access_control",
+            "arithmetic",
+            "unchecked_low_level_calls",
+            "denial_of_service",
+            "bad_randomness",
+            "front_running",
+            "time_manipulation"
+          ]
         },
-        "what_contracts": null,
-        "how_collected": null,
-        "scale": null,
-        "labeling": null,
-        "target_vulnerabilities": [],
-        "label_granularity": null,
-        "label_count": null,
-        "label_count_basis": null,
+        "what_contracts": "110 curated Solidity test cases: 100 vulnerable contracts across 10 native categories and 10 safe contracts.",
+        "how_collected": "Curated and annotated by the paper authors into 11 sub-datasets.",
+        "scale": "110 test cases",
+        "labeling": "Ten vulnerable test cases per native vulnerability category, plus ten safe test cases.",
+        "target_vulnerabilities": [
+          "reentrancy",
+          "access_control",
+          "arithmetic",
+          "unchecked_low_level_calls",
+          "denial_of_service",
+          "bad_randomness",
+          "front_running",
+          "time_manipulation"
+        ],
+        "label_granularity": "contract/test-case",
+        "label_count": 100,
+        "label_count_basis": "100 vulnerable test cases; 10 additional safe test cases",
         "has_labels": true
       },
       "tool_performance_data": [
+        {
+          "tool_name": "GPT-4o",
+          "metrics": {
+            "precision": 0.92,
+            "recall": 0.84,
+            "f1_score": 0.88,
+            "execution_time_avg": 2.2
+          },
+          "vulnerability_scores": {
+            "reentrancy": "10/10",
+            "access_control": "28/30",
+            "arithmetic": "10/10",
+            "unchecked_low_level_calls": "8/10",
+            "denial_of_service": "5/10",
+            "bad_randomness": "10/10",
+            "front_running": "3/10",
+            "time_manipulation": "10/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
+        },
         {
           "tool_name": "Llama-3.1-8b",
           "metrics": {
@@ -1406,8 +2067,17 @@
             "f1_score": 0.74,
             "execution_time_avg": 47.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "9/10",
+            "access_control": "25/30",
+            "arithmetic": "10/10",
+            "unchecked_low_level_calls": "6/10",
+            "denial_of_service": "2/10",
+            "bad_randomness": "2/10",
+            "front_running": "3/10",
+            "time_manipulation": "7/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "ConFuzzius",
@@ -1417,8 +2087,17 @@
             "f1_score": 0.58,
             "execution_time_avg": 1089.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "9/10",
+            "access_control": "5/30",
+            "arithmetic": "7/10",
+            "unchecked_low_level_calls": "9/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "2/10",
+            "front_running": "2/10",
+            "time_manipulation": "8/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Conkas",
@@ -1428,8 +2107,17 @@
             "f1_score": 0.59,
             "execution_time_avg": 2880.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "10/10",
+            "access_control": "0/30",
+            "arithmetic": "9/10",
+            "unchecked_low_level_calls": "10/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "7/10",
+            "time_manipulation": "8/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Maian",
@@ -1439,8 +2127,17 @@
             "f1_score": 0.08,
             "execution_time_avg": 57.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "0/10",
+            "access_control": "4/30",
+            "arithmetic": "0/10",
+            "unchecked_low_level_calls": "0/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "0/10",
+            "time_manipulation": "0/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Manticore",
@@ -1450,8 +2147,17 @@
             "f1_score": 0.47,
             "execution_time_avg": 662.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "8/10",
+            "access_control": "7/30",
+            "arithmetic": "7/10",
+            "unchecked_low_level_calls": "2/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "0/10",
+            "time_manipulation": "7/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Mythril",
@@ -1461,8 +2167,17 @@
             "f1_score": 0.7,
             "execution_time_avg": 257.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "9/10",
+            "access_control": "15/30",
+            "arithmetic": "7/10",
+            "unchecked_low_level_calls": "9/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "8/10",
+            "front_running": "0/10",
+            "time_manipulation": "6/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Osiris",
@@ -1472,8 +2187,17 @@
             "f1_score": 0.3,
             "execution_time_avg": 92.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "7/10",
+            "access_control": "0/30",
+            "arithmetic": "9/10",
+            "unchecked_low_level_calls": "0/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "0/10",
+            "time_manipulation": "2/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Oyente",
@@ -1483,8 +2207,17 @@
             "f1_score": 0.3,
             "execution_time_avg": 4.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "7/10",
+            "access_control": "0/30",
+            "arithmetic": "9/10",
+            "unchecked_low_level_calls": "0/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "2/10",
+            "time_manipulation": "0/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Securify",
@@ -1494,8 +2227,17 @@
             "f1_score": 0.18,
             "execution_time_avg": 27.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "8/10",
+            "access_control": "0/30",
+            "arithmetic": "0/10",
+            "unchecked_low_level_calls": "0/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "2/10",
+            "time_manipulation": "0/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "sFuzz",
@@ -1505,8 +2247,17 @@
             "f1_score": 0.34,
             "execution_time_avg": 1080.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "6/10",
+            "access_control": "5/30",
+            "arithmetic": "6/10",
+            "unchecked_low_level_calls": "0/10",
+            "denial_of_service": "3/10",
+            "bad_randomness": "0/10",
+            "front_running": "0/10",
+            "time_manipulation": "1/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Slither",
@@ -1516,8 +2267,17 @@
             "f1_score": 0.47,
             "execution_time_avg": 1.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "9/10",
+            "access_control": "13/30",
+            "arithmetic": "0/10",
+            "unchecked_low_level_calls": "0/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "0/10",
+            "front_running": "0/10",
+            "time_manipulation": "8/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "Smartcheck",
@@ -1527,8 +2287,17 @@
             "f1_score": 0.49,
             "execution_time_avg": 3.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "8/10",
+            "access_control": "0/30",
+            "arithmetic": "1/10",
+            "unchecked_low_level_calls": "8/10",
+            "denial_of_service": "7/10",
+            "bad_randomness": "0/10",
+            "front_running": "9/10",
+            "time_manipulation": "0/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         },
         {
           "tool_name": "solhint",
@@ -1538,8 +2307,17 @@
             "f1_score": 0.51,
             "execution_time_avg": 1.0
           },
-          "vulnerability_scores": null,
-          "evidence_source": "Table 5, Table 6"
+          "vulnerability_scores": {
+            "reentrancy": "0/10",
+            "access_control": "13/30",
+            "arithmetic": "0/10",
+            "unchecked_low_level_calls": "6/10",
+            "denial_of_service": "0/10",
+            "bad_randomness": "5/10",
+            "front_running": "0/10",
+            "time_manipulation": "10/10"
+          },
+          "evidence_source": "Table 4, Table 5, Table 6"
         }
       ]
     },
@@ -2697,6 +3475,128 @@
             "tp": 798.0
           },
           "vulnerability_scores": {}
+        }
+      ]
+    },
+    {
+      "source_id": "gptscan",
+      "publication_date": "2024",
+      "dataset_profile": {
+        "dataset_name": "Top200, Web3Bugs, and DefiHacks",
+        "solc": [],
+        "domain_tags": [
+          "logic_vulnerabilities",
+          "audited_projects"
+        ],
+        "what_contracts": "Token contracts and large multi-file smart-contract projects evaluated by GPTScan."
+      },
+      "tool_performance_data": [
+        {
+          "tool_name": "GPTScan",
+          "metrics": {
+            "execution_time_avg": 14.39,
+            "runtime_unit": "seconds",
+            "runtime_basis": "per_kloc"
+          },
+          "evidence_source": "GPTScan paper, overall tested-dataset average: 14.39 seconds per thousand lines of Solidity code."
+        }
+      ]
+    },
+    {
+      "source_id": "honeybadger",
+      "publication_date": "2019",
+      "dataset_profile": {
+        "dataset_name": "Ethereum bytecode corpus",
+        "solc": [],
+        "contract_count_total": 151935,
+        "domain_tags": [
+          "deployed_bytecode",
+          "honeypots"
+        ],
+        "what_contracts": "Unique deployed smart-contract bytecodes analyzed in the HoneyBadger evaluation."
+      },
+      "tool_performance_data": [
+        {
+          "tool_name": "HoneyBadger",
+          "metrics": {
+            "execution_time_avg": 142.0,
+            "runtime_unit": "seconds",
+            "runtime_basis": "per_contract"
+          },
+          "evidence_source": "HoneyBadger paper, Section 5.1: average 142 seconds per analyzed contract."
+        }
+      ]
+    },
+    {
+      "source_id": "sailfish",
+      "publication_date": "2022",
+      "dataset_profile": {
+        "dataset_name": "Etherscan full dataset",
+        "solc": [],
+        "contract_count_total": 89853,
+        "domain_tags": [
+          "real_world",
+          "etherscan"
+        ],
+        "what_contracts": "Deduplicated Solidity contracts retained by the SAILFISH evaluation."
+      },
+      "tool_performance_data": [
+        {
+          "tool_name": "SAILFISH",
+          "metrics": {
+            "execution_time_avg": 30.79,
+            "runtime_unit": "seconds",
+            "runtime_basis": "per_contract"
+          },
+          "evidence_source": "SAILFISH paper, Table IV: 30.79 seconds mean analysis time over the full dataset."
+        }
+      ]
+    },
+    {
+      "source_id": "VulHunter",
+      "publication_date": "2023",
+      "dataset_profile": {
+        "dataset_name": "VulHunter RQ3 overhead sample",
+        "solc": [],
+        "domain_tags": [
+          "runtime_overhead",
+          "medium_contracts"
+        ],
+        "what_contracts": "About 100 Ethereum contracts of about 121KB selected for the RQ3 overhead comparison."
+      },
+      "tool_performance_data": [
+        {
+          "tool_name": "VulHunter",
+          "metrics": {
+            "execution_time_avg": 4.4,
+            "runtime_unit": "seconds",
+            "runtime_basis": "per_contract"
+          },
+          "evidence_source": "VulHunter paper, RQ3: average 4.4 seconds to analyze a 121KB Ethereum contract."
+        }
+      ]
+    },
+    {
+      "source_id": "smartian",
+      "publication_date": "2021",
+      "dataset_profile": {
+        "dataset_name": "SMARTIAN B1-B3 evaluation campaigns",
+        "solc": [],
+        "domain_tags": [
+          "fuzzing_campaign",
+          "evaluation_cap"
+        ],
+        "what_contracts": "VeriSmart, SmartBugs, and large-scale Etherscan evaluation contracts used by SMARTIAN."
+      },
+      "tool_performance_data": [
+        {
+          "tool_name": "SMARTIAN",
+          "metrics": {
+            "time_sec": 3600.0,
+            "runtime_unit": "seconds",
+            "runtime_basis": "campaign_cap"
+          },
+          "evidence_source": "SMARTIAN paper evaluation protocol: each tool or campaign was run for one hour per contract; this is a cap, not a mean completion time."
         }
       ]
     },

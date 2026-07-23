@@ -2,15 +2,29 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Iterable, List
+from typing import List
 
 from toolrank import _complexity
 from toolrank.schemas import ContractFeatures
+from toolrank.solc_range import (
+    representative_solidity_version,
+    version_satisfies_solidity_constraint,
+)
+from toolrank.source_project import (
+    dependency_closure,
+    mask_solidity_noncode_for_pragmas,
+    source_entrypoints,
+)
+from toolrank.target_inputs import classify_target_input
 
 _PRAGMA_RE = re.compile(r"pragma\s+solidity\s+([^;]+);", re.IGNORECASE)
 _VERSION_RE = re.compile(r"0\.[4-8](?:\.\d+|\.x)?")
 _CONTRACT_RE = re.compile(r"\b(contract|library|interface)\s+[A-Za-z_][A-Za-z0-9_]*")
 _FUNCTION_RE = re.compile(r"\bfunction\s+[A-Za-z_][A-Za-z0-9_]*")
+
+
+class SolidityConstraintError(RuntimeError):
+    """Raised when source-unit Solidity pragmas have no supported intersection."""
 
 
 def _read_text(path: Path) -> str:
@@ -28,24 +42,6 @@ def _semver_key(version: str) -> tuple:
     return tuple(parts)
 
 
-def _choose_primary_version(versions: List[str]) -> str | None:
-    if not versions:
-        return None
-    # Prefer the most concrete version; fall back to max within known ranges.
-    concrete = [v for v in versions if not v.endswith(".x")]
-    if concrete:
-        return max(concrete, key=_semver_key)
-    return max(versions, key=_semver_key)
-
-
-def _loc_total(files: Iterable[Path]) -> int:
-    total = 0
-    for path in files:
-        text = _read_text(path)
-        total += sum(1 for line in text.splitlines() if line.strip())
-    return total
-
-
 def analyze_target(target_path: str | None) -> ContractFeatures:
     if not target_path:
         return ContractFeatures()
@@ -57,44 +53,94 @@ def analyze_target(target_path: str | None) -> ContractFeatures:
     sol_files: List[Path] = []
     bytecode_files: List[Path] = []
     runtime_files: List[Path] = []
+    source_root = path if path.is_dir() else path.parent
 
     if path.is_file():
-        suffix = path.suffix.lower()
-        if suffix == ".sol":
-            sol_files = [path]
-        elif suffix in {".bin", ".hex"}:
-            if "runtime" in path.stem.lower():
-                runtime_files = [path]
-            else:
-                bytecode_files = [path]
+        input_kind = classify_target_input(path)
+        if input_kind == "sol":
+            sol_files = dependency_closure(path, source_root)
+        elif input_kind == "bytecode":
+            bytecode_files = [path]
+        elif input_kind == "runtime":
+            runtime_files = [path]
     else:
-        sol_files = sorted(path.rglob("*.sol"))
-        bytecode_files = sorted([p for p in path.rglob("*.bin") if "runtime" not in p.stem.lower()])
-        runtime_files = sorted([p for p in path.rglob("*.bin") if "runtime" in p.stem.lower()])
+        target_inputs = [
+            (candidate, classify_target_input(candidate))
+            for candidate in sorted(path.rglob("*"))
+            if candidate.is_file() and not candidate.is_symlink()
+        ]
+        sol_files = [candidate for candidate, kind in target_inputs if kind == "sol"]
+        bytecode_files = [
+            candidate for candidate, kind in target_inputs if kind == "bytecode"
+        ]
+        runtime_files = [
+            candidate for candidate, kind in target_inputs if kind == "runtime"
+        ]
 
-    versions: List[str] = []
+    version_literals: List[str] = []
+    version_constraints: List[str] = []
     contract_count = 0
     function_count = 0
     sol_sources: dict[str, str] = {}
-    source_root = path if path.is_dir() else path.parent
     if sol_files:
         for sol_file in sol_files:
             text = _read_text(sol_file)
+            profile_text = mask_solidity_noncode_for_pragmas(
+                _complexity.normalize_profile_source(text)
+            )
             try:
                 source_name = sol_file.relative_to(source_root).as_posix()
             except ValueError:
                 source_name = sol_file.name
             sol_sources[source_name] = text
-            versions.extend(_VERSION_RE.findall(" ".join(_PRAGMA_RE.findall(text))))
-            contract_count += len(_CONTRACT_RE.findall(text))
-            function_count += len(_FUNCTION_RE.findall(text))
+            constraints = [match.strip() for match in _PRAGMA_RE.findall(profile_text)]
+            version_constraints.extend(constraints)
+            version_literals.extend(_VERSION_RE.findall(" ".join(constraints)))
+            contract_count += len(_CONTRACT_RE.findall(profile_text))
+            function_count += len(_FUNCTION_RE.findall(profile_text))
 
+    primary_version = representative_solidity_version(version_constraints)
+    if version_constraints and primary_version is None:
+        joined = "; ".join(version_constraints)
+        raise SolidityConstraintError(
+            f"No supported Solidity version satisfies target pragmas: {joined}"
+        )
+    satisfying_literals = [
+        version
+        for version in version_literals
+        if not version.endswith(".x")
+        and all(
+            version_satisfies_solidity_constraint(version, constraint)
+            for constraint in version_constraints
+        )
+    ]
+    if primary_version is not None:
+        satisfying_literals.append(primary_version)
+
+    gower_ast_available = False
     try:
-        complexity = _complexity.profile_sources(sol_sources) if sol_sources else {}
+        gower_profile = _complexity.profile_sources(sol_sources) if sol_sources else {}
+        gower_ast_available = bool(gower_profile) and all(
+            key in gower_profile for key in _complexity.NUM_DIMS
+        )
     except _complexity.AstExtractionError:
-        complexity = {}
+        gower_profile = _complexity.source_profile_facts(sol_sources)
+    if sol_sources and not gower_ast_available:
+        gower_profile = _complexity.source_profile_facts(sol_sources)
 
-    if sol_files and (bytecode_files or runtime_files):
+    input_kind_count = sum(
+        bool(files) for files in (sol_files, bytecode_files, runtime_files)
+    )
+    present_input_kinds = [
+        kind
+        for kind, files in (
+            ("sol", sol_files),
+            ("bytecode", bytecode_files),
+            ("runtime", runtime_files),
+        )
+        if files
+    ]
+    if input_kind_count > 1:
         source_kind = "mixed"
     elif sol_files:
         source_kind = "sol"
@@ -105,21 +151,31 @@ def analyze_target(target_path: str | None) -> ContractFeatures:
     else:
         source_kind = "unknown"
 
-    file_count = len(sol_files) if sol_files else len(bytecode_files) + len(runtime_files)
+    file_count = len(sol_files) + len(bytecode_files) + len(runtime_files)
+    source_execution_count = (
+        len(source_entrypoints(sol_files, source_root)) if sol_files else 0
+    )
     features = ContractFeatures(
         target_path=str(path),
         source_kind=source_kind,
-        solidity_versions=sorted(set(versions)),
-        primary_solidity_version=_choose_primary_version(sorted(set(versions))),
-        loc_total=_loc_total(sol_files) if sol_files else 0,
+        present_input_kinds=present_input_kinds,
+        solidity_versions=sorted(set(satisfying_literals), key=_semver_key),
+        solidity_version_constraints=version_constraints,
+        primary_solidity_version=primary_version,
+        gower_solc_bucket=str(gower_profile.get("solc", "unknown")),
+        gower_ast_available=gower_ast_available,
+        loc_total=int(gower_profile.get("loc", 0)),
         function_count=function_count,
         file_count=file_count,
+        execution_input_count=(
+            source_execution_count + len(bytecode_files) + len(runtime_files)
+        ),
         contract_count=contract_count,
         is_multifile=len(sol_files) > 1,
-        cyclomatic_avg=complexity.get("avg_cyc", 0.0),
-        cyclomatic_max=complexity.get("max_cyc", 0),
-        cyclomatic_sum=complexity.get("sum_cyc", 0),
-        max_nesting=complexity.get("max_nest", 0),
-        contract_coupling=complexity.get("coupling", 0),
+        cyclomatic_avg=gower_profile.get("avg_cyc", 0.0),
+        cyclomatic_max=gower_profile.get("max_cyc", 0),
+        cyclomatic_sum=gower_profile.get("sum_cyc", 0),
+        max_nesting=gower_profile.get("max_nest", 0),
+        contract_coupling=gower_profile.get("coupling", 0),
     )
     return features

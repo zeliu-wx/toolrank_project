@@ -1,0 +1,899 @@
+{
+  "schema_version": "runtime-paper-audit-v1",
+  "generated_on": "2026-07-21",
+  "task_id": "07-13-paper-code-alignment",
+  "query": "Find approximately five independent primary empirical or evaluation papers for GPTScan and SAILFISH, verify runtime evidence in the full text, normalize only comparable measurements, and identify scheduler-safe evidence.",
+  "scope": "mixed",
+  "normalization_policy": {
+    "average_method": "Unweighted arithmetic mean of one accepted paper-level mean per independent paper, calculated separately for each identical runtime basis.",
+    "never_mix_bases": true,
+    "scheduler_bases": [
+      "per_contract",
+      "per_kloc"
+    ],
+    "descriptive_only_bases": [
+      "per_project",
+      "per_case",
+      "per_contract_group"
+    ],
+    "rejected_as_completion_time": [
+      "campaign cap without completed-run observations",
+      "cumulative runtime without a tool-specific successful denominator",
+      "timeout-only value",
+      "runtime for a modified or derivative implementation when exact-tool identity is required"
+    ],
+    "scheduler_rule": "A paper observation remains unschedulable unless its source scene has a compatible Solidity compiler and LOC profile and retains at least 0.2 normalized support; qualified rows are selected by weighted P90 rather than a cross-paper arithmetic mean."
+  },
+  "tools": {
+    "GPTScan": {
+      "candidate_paper_count": 5,
+      "papers_with_verified_runtime": 3,
+      "accepted_measurement_paper_count": 3,
+      "rejected_or_no_runtime_paper_count": 2,
+      "cross_paper_averages": [
+        {
+          "runtime_basis": "per_kloc",
+          "paper_count": 2,
+          "source_values_seconds": [
+            {
+              "record_id": "gptscan-icse-2024",
+              "value": 14.39
+            },
+            {
+              "record_id": "gptscan-heimdallr-2026",
+              "value": 29.3
+            }
+          ],
+          "formula": "(14.39 + (293 / 10)) / 2",
+          "unweighted_mean_seconds": 21.845,
+          "rounded_mean_seconds": 21.85,
+          "status": "descriptive_only",
+          "reason": "Only two independent papers report a comparable per-KLoC GPTScan measurement, and neither source supplies a scheduler-compatible compiler scene profile."
+        },
+        {
+          "runtime_basis": "per_project",
+          "paper_count": 2,
+          "source_values_seconds": [
+            {
+              "record_id": "gptscan-icse-2024",
+              "value": 17.50863402061856,
+              "derivation": "6793.35 / 388"
+            },
+            {
+              "record_id": "gptscan-heimdallr-2026",
+              "value": 31.0,
+              "derivation": "reported directly"
+            }
+          ],
+          "formula": "((6793.35 / 388) + 31) / 2",
+          "unweighted_mean_seconds": 24.25431701030928,
+          "rounded_mean_seconds": 24.25,
+          "status": "conditional_descriptive_only",
+          "reason": "The ICSE value assumes the reported complete campaign covered all 388 listed projects; project is not contract and is not a supported scheduler basis."
+        }
+      ],
+      "single_source_references": [
+        {
+          "runtime_basis": "per_case",
+          "record_id": "gptscan-intentchecker-2026",
+          "mean_seconds": 265.9,
+          "median_seconds": 149.0,
+          "observation_count": 60,
+          "status": "descriptive_only_not_a_cross_paper_average"
+        }
+      ],
+      "per_contract_average_seconds": null,
+      "per_contract_average_status": "not_found",
+      "scheduler_recommendation": "Do not invent a per-contract GPTScan value. If evidence rows are later ingested, preserve the two per-KLoC observations under independent source IDs and leave them unschedulable until a compatible compiler/LOC scene profile exists. Do not overwrite either paper row with 21.845 seconds/KLoC.",
+      "records": [
+        {
+          "record_id": "gptscan-icse-2024",
+          "decision": "accepted_measurement",
+          "decision_reason": "Primary tool paper reports both campaign total and a per-KLoC mean for the exact GPTScan implementation.",
+          "title": "GPTScan: Detecting Logic Vulnerabilities in Smart Contracts by Combining GPT with Program Analysis",
+          "authors": [
+            "Yuqiang Sun",
+            "Daoyuan Wu",
+            "Yue Xue",
+            "Han Liu",
+            "Haijun Wang",
+            "Zhengzi Xu",
+            "Xiaofei Xie",
+            "Yang Liu"
+          ],
+          "year": 2024,
+          "venue": "46th IEEE/ACM International Conference on Software Engineering (ICSE 2024)",
+          "doi": "10.1145/3597503.3639117",
+          "url": "https://daoyuan14.github.io/papers/ICSE24_GPTScan.pdf",
+          "tool": {
+            "name": "GPTScan",
+            "version_or_commit": null,
+            "model": "GPT-3.5-turbo, 4K context, temperature 0",
+            "identity_notes": "Exact paper implementation; the underlying dated OpenAI model snapshot is not named."
+          },
+          "dataset": {
+            "name": "Top200 + Web3Bugs + DefiHacks",
+            "canonical_identity": "388 contract projects, 3,157 Solidity files, 472,024 LoC",
+            "attempted_count": 388,
+            "successful_count": null,
+            "count_unit": "project",
+            "timeout_count": null,
+            "compilation_failure_count": 17,
+            "other_failure_count": null,
+            "solidity_profile": "No compiler-version distribution. Projects use crytic-compiler default configuration; 17 Top200 projects could not be compiled for static confirmation, but the paper still reports a complete overall scan campaign."
+          },
+          "runtime": {
+            "reported_total_seconds": 6793.35,
+            "reported_mean_seconds": 14.39,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "per_kloc",
+            "timeout_policy": null,
+            "hardware": null,
+            "normalization_formula": "6793.35 seconds / 472.02 KLoC = 14.39 seconds/KLoC (paper-reported); conditional project average = 6793.35 / 388 = 17.508634 seconds/project.",
+            "normalized_mean_seconds": 14.39,
+            "normalized_basis": "per_kloc",
+            "runtime_denominator_notes": "The paper does not tabulate successful executions separately from the 388 project list."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.6, Table 2",
+              "fact": "303 Top200, 72 Web3Bugs, and 13 DefiHacks projects sum to 388; files and LoC sum to 3,157 and 472,024."
+            },
+            {
+              "locator": "PDF pp.8-9, RQ4 and Table 5",
+              "fact": "Overall 472.02 KLoC, 6,793.35 seconds, and 14.39 seconds/KLoC; timing covers GPT interaction and static analysis."
+            },
+            {
+              "locator": "PDF p.6, implementation and dataset setup",
+              "fact": "GPT-3.5-turbo is used; 17 Top200 projects cannot be compiled for static confirmation."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_exact_doi",
+            "metadata_sources": [
+              "paper PDF",
+              "Crossref exact DOI lookup",
+              "OpenAlex exact DOI lookup"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": true,
+            "reason": "Per-KLoC is supported, but the source row has no compiler bucket/profile and therefore cannot satisfy scene compatibility and support rules."
+          }
+        },
+        {
+          "record_id": "gptscan-intentchecker-2026",
+          "decision": "accepted_descriptive_only",
+          "decision_reason": "Independent rerun reports a mean and median over 60 completed per-case observations, but per-case is not a scheduler basis and the GPT model alias had drifted.",
+          "title": "IntentChecker: An Intent-Model-Based Debugging Assistant for Mitigating Numeric Logic Errors in Solidity",
+          "authors": [
+            "Inseong Jeon",
+            "Sundeuk Kim",
+            "Hyunwoo Kim",
+            "Hoh Peter In"
+          ],
+          "year": 2026,
+          "venue": "Research Square preprint",
+          "doi": "10.21203/rs.3.rs-9541907/v1",
+          "url": "https://assets-eu.researchsquare.com/files/rs-9541907/v1_covered_e81afd1e-c85f-4093-a47e-86c4a1cec2d3.pdf",
+          "tool": {
+            "name": "GPTScan",
+            "version_or_commit": null,
+            "model": "OpenAI model alias reached by the GPTScan implementation during April 2026 reruns",
+            "identity_notes": "The authors explicitly warn that GPTScan's OpenAI aliases had been redirected since 2023, so this is an exact-code rerun with model drift rather than the original ICSE model snapshot."
+          },
+          "dataset": {
+            "name": "20 RQ1-mitigated numeric-logic-error cases",
+            "canonical_identity": "20 contract/function cases selected from the paper's 75 effective cases; three runs per tool",
+            "attempted_count": 60,
+            "successful_count": 60,
+            "count_unit": "case-run",
+            "timeout_count": 0,
+            "compilation_failure_count": null,
+            "other_failure_count": 0,
+            "solidity_profile": "No complete compiler distribution for the 20-case subset. The broader benchmark includes contracts targeting Solidity >=0.6 and one 0.4.x pragma with semantically compatible constructs."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": 265.9,
+            "reported_median_seconds": 149.0,
+            "reported_unit": "seconds",
+            "reported_basis": "per_case",
+            "timeout_policy": "No GPTScan timeout is stated; the separate 1,800-second timeout applies to NumScout only.",
+            "hardware": "11th Gen Intel Core i7-11390H at 3.40 GHz, 16 GB RAM, Windows 10 64-bit; same hardware, OS, and network for all compared tools.",
+            "normalization_formula": "Use the reported 265.9 seconds/case directly; 60 observations = 20 cases x 3 runs. Do not convert a case into a contract.",
+            "normalized_mean_seconds": 265.9,
+            "normalized_basis": "per_case",
+            "runtime_denominator_notes": "Figure 9 contains all 60 per-case observations; an approximate mean-implied total would be 15,954 seconds, but the rounded mean makes that total non-authoritative."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.21, Section 4.1",
+              "fact": "The common experiment environment is an i7-11390H Windows 10 machine with 16 GB RAM."
+            },
+            {
+              "locator": "PDF pp.31-32, Section 4.4 and Figure 9",
+              "fact": "GPTScan has n=60, mean 265.9 seconds, and median 149.0 seconds over three runs of 20 cases."
+            },
+            {
+              "locator": "PDF p.33, threats to validity",
+              "fact": "April 2026 reruns used redirected OpenAI aliases; latency used the reruns under common hardware, OS, and network conditions."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_preprint_doi",
+            "metadata_sources": [
+              "Research Square cover page",
+              "paper PDF"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": false,
+            "reason": "Per-case is not an accepted scheduler basis; the source also lacks a compiler scene profile and exact model snapshot."
+          }
+        },
+        {
+          "record_id": "gptscan-heimdallr-2026",
+          "decision": "accepted_measurement",
+          "decision_reason": "Independent deployment reports both project-level and normalized 10-KLoC GPTScan timing; the latter converts cleanly to per-KLoC.",
+          "title": "An Effective and Cost-Efficient Agentic Framework for Ethereum Smart Contract Auditing",
+          "authors": [
+            "Xiaohui Hu",
+            "Wun Yu Chan",
+            "Yuejie Shi",
+            "Qumeng Sun",
+            "Wei-Cheng Wang",
+            "Chiachih Wu",
+            "Haoyu Wang",
+            "Ningyu He"
+          ],
+          "year": 2026,
+          "venue": "arXiv preprint",
+          "doi": null,
+          "url": "https://arxiv.org/pdf/2601.17833",
+          "tool": {
+            "name": "GPTScan",
+            "version_or_commit": null,
+            "model": "GPT-3.5-turbo through standardized proprietary-model API access",
+            "identity_notes": "The paper says GPTScan was one of two open-source academic tools successfully deployed locally; exact commit and model snapshot are absent."
+          },
+          "dataset": {
+            "name": "D1 + D2 and D3",
+            "canonical_identity": "D1: 20 recent high-value exploit projects; D2: 30 Anthropic benchmark exploit projects; D3: 30 high-reward Sherlock contest projects",
+            "attempted_count": 80,
+            "successful_count": null,
+            "count_unit": "project across two reported measurement groups",
+            "timeout_count": null,
+            "compilation_failure_count": null,
+            "other_failure_count": null,
+            "solidity_profile": "Not reported."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": null,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "multiple",
+            "timeout_policy": null,
+            "hardware": "Mac Studio, Apple M3 Ultra, 32-core CPU, 32-core GPU, 512 GB unified memory; proprietary model calls used OpenRouter for standardized latency and rate limits.",
+            "measurements": [
+              {
+                "dataset": "D1 + D2",
+                "attempted_projects": 50,
+                "reported_mean_seconds": 31.0,
+                "reported_basis": "per_project",
+                "normalized_mean_seconds": 31.0,
+                "normalized_basis": "per_project",
+                "normalization_formula": "reported directly"
+              },
+              {
+                "dataset": "D3",
+                "attempted_projects": 30,
+                "reported_mean_seconds": 293.0,
+                "reported_basis": "per_10_kloc",
+                "normalized_mean_seconds": 29.3,
+                "normalized_basis": "per_kloc",
+                "normalization_formula": "293 seconds / 10 KLoC = 29.3 seconds/KLoC"
+              }
+            ],
+            "runtime_denominator_notes": "The paper does not report successful-completion or timeout counts for GPTScan."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.7, Section 6.1.2",
+              "fact": "D1, D2, and D3 contain 20, 30, and 30 projects; GPTScan was locally deployed as an open-source baseline."
+            },
+            {
+              "locator": "PDF p.8, Tables 1 and 2",
+              "fact": "GPTScan averages 31 seconds per D1/D2 project and 293 seconds per 10 KLoC on D3."
+            },
+            {
+              "locator": "PDF p.8, Section 6.1.4",
+              "fact": "Hardware and API standardization are reported, but no Solidity profile or exact GPTScan commit is given."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_arxiv_metadata",
+            "metadata_sources": [
+              "arXiv record",
+              "paper PDF"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": true,
+            "reason": "The D3 value converts to per-KLoC, but the source lacks an exact compiler/LOC scene profile and successful-run counts."
+          }
+        },
+        {
+          "record_id": "gptscan-airaclex-2025",
+          "decision": "rejected_no_runtime_and_tool_mismatch",
+          "decision_reason": "The paper evaluates GPTScan accuracy but reports no GPTScan runtime; it also replaces GPT-3.5 with GPT-4o-mini and changes output handling.",
+          "title": "AiRacleX: Automated Detection of Price Oracle Manipulations via LLM-Driven Knowledge Mining and Prompt Generation",
+          "authors": [
+            "Bo Gao",
+            "Yuan Wang",
+            "Qingsong Wei",
+            "Yong Liu",
+            "Rick Siow Mong Goh",
+            "David Lo"
+          ],
+          "year": 2025,
+          "venue": "arXiv preprint; manuscript submitted to ACM",
+          "doi": null,
+          "url": "https://arxiv.org/pdf/2502.06348",
+          "tool": {
+            "name": "modified GPTScan",
+            "version_or_commit": null,
+            "model": "GPT-4o-mini replacing GPT-3.5",
+            "identity_notes": "Authors modify GPTScan to enforce structured JSON output."
+          },
+          "dataset": {
+            "name": "DeFiHacks price-oracle subset + Code4rena",
+            "canonical_identity": "11 DeFiHacks projects and 14 Code4rena projects used in explicit GPTScan comparisons",
+            "attempted_count": 25,
+            "successful_count": null,
+            "count_unit": "project",
+            "timeout_count": null,
+            "compilation_failure_count": null,
+            "other_failure_count": null,
+            "solidity_profile": "No version distribution; eight newly curated Code4rena projects are stated to compile successfully."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": null,
+            "reported_median_seconds": null,
+            "reported_unit": null,
+            "reported_basis": null,
+            "timeout_policy": null,
+            "hardware": null,
+            "normalization_formula": null,
+            "normalized_mean_seconds": null,
+            "normalized_basis": null,
+            "runtime_denominator_notes": "No GPTScan timing is reported in the evaluation tables or runtime discussion."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.11, Section 4.2",
+              "fact": "GPT-4o-mini replaces GPT-3.5 and GPTScan is modified for structured JSON output."
+            },
+            {
+              "locator": "PDF p.13, Table 4; p.17, Table 7",
+              "fact": "GPTScan precision/recall results are reported without runtime columns."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_arxiv_metadata",
+            "metadata_sources": [
+              "arXiv record",
+              "paper PDF"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": false,
+            "reason": "No runtime measurement and not the exact original tool/model configuration."
+          }
+        },
+        {
+          "record_id": "gptscan-eguard-2025",
+          "decision": "rejected_no_runtime",
+          "decision_reason": "The study runs GPTScan on 27 contracts but reports only detection metrics for GPTScan; RQ3 timing concerns E-Guard's IR overhead, not GPTScan completion time.",
+          "title": "E-Guard: a vulnerability detection tool for smart contracts in electric power systems",
+          "authors": [
+            "Feng Du",
+            "Junwei Ma",
+            "Liang Gu",
+            "Honglin Xue",
+            "Xiaowei Hao",
+            "Xin Gong",
+            "Rongsheng Li"
+          ],
+          "year": 2025,
+          "venue": "Blockchain: Research and Applications 6(4), 100309",
+          "doi": "10.1016/j.bcra.2025.100309",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2096720925000363",
+          "tool": {
+            "name": "GPTScan",
+            "version_or_commit": null,
+            "model": null,
+            "identity_notes": "The paper names GPTScan as a comparator but does not identify its commit or model snapshot."
+          },
+          "dataset": {
+            "name": "Electric-power-system smart-contract dataset",
+            "canonical_identity": "27 smart contracts drawn from State Grid Corporation of China applications",
+            "attempted_count": 27,
+            "successful_count": null,
+            "count_unit": "contract",
+            "timeout_count": null,
+            "compilation_failure_count": null,
+            "other_failure_count": null,
+            "solidity_profile": "Not reported."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": null,
+            "reported_median_seconds": null,
+            "reported_unit": null,
+            "reported_basis": null,
+            "timeout_policy": null,
+            "hardware": "Intel i5-12400F 12-core processor, 64 GB memory, SSD",
+            "normalization_formula": null,
+            "normalized_mean_seconds": null,
+            "normalized_basis": null,
+            "runtime_denominator_notes": "No GPTScan runtime appears in RQ1; RQ3 quantifies E-Guard-specific EIR overhead."
+          },
+          "evidence": [
+            {
+              "locator": "HTML Section 5, experiment setup and RQ1",
+              "fact": "The 27-contract experiment compares E-Guard, Slither, and GPTScan on detection metrics."
+            },
+            {
+              "locator": "HTML Section 5, RQ3",
+              "fact": "Timing/space overhead is scoped to E-Guard's EIR versus Slither IR, not GPTScan."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_publisher_full_text_and_exact_doi",
+            "metadata_sources": [
+              "ScienceDirect article",
+              "DOAJ DOI metadata"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": false,
+            "reason": "No GPTScan runtime is reported."
+          }
+        }
+      ]
+    },
+    "SAILFISH": {
+      "candidate_paper_count": 5,
+      "papers_with_verified_runtime": 5,
+      "accepted_measurement_paper_count": 3,
+      "rejected_measurement_paper_count": 2,
+      "cross_paper_averages": [
+        {
+          "runtime_basis": "per_contract",
+          "paper_count": 3,
+          "source_values_seconds": [
+            {
+              "record_id": "sailfish-sp-2022",
+              "value": 30.79
+            },
+            {
+              "record_id": "sailfish-smart-learning-2023",
+              "value": 10.9
+            },
+            {
+              "record_id": "sailfish-divertscan-2025",
+              "value": 29.34
+            }
+          ],
+          "formula": "(30.79 + 10.9 + 29.34) / 3",
+          "unweighted_mean_seconds": 23.676666666666666,
+          "rounded_mean_seconds": 23.68,
+          "status": "descriptive_only",
+          "reason": "Three independent papers report a per-contract mean. Their datasets, hardware, versions, failure handling, and timeout policies differ, and no source has a scheduler-compatible compiler scene profile."
+        }
+      ],
+      "excluded_from_per_contract_average": [
+        {
+          "record_id": "sailfish-nyx-2024",
+          "value_seconds": 32.83,
+          "reason": "The unit is a successfully analyzed vulnerability case/contract group, and groups may contain multiple contracts."
+        },
+        {
+          "record_id": "sailfish-smartrim-2026",
+          "value_seconds": 100.0,
+          "reason": "This is cumulative RE-dataset runtime with no Sailfish-specific successful-contract denominator."
+        }
+      ],
+      "scheduler_recommendation": "Preserve 30.79, 10.9, and 29.34 seconds/contract as independent observations if ingested. Do not store 23.68 as a replacement paper row or use it as an executable estimate. Each source needs a compiler/LOC scene profile before it can participate in weighted-P90 scheduling.",
+      "records": [
+        {
+          "record_id": "sailfish-sp-2022",
+          "decision": "accepted_measurement",
+          "decision_reason": "Primary tool paper directly reports mean analysis time per contract for the full Etherscan dataset.",
+          "title": "SAILFISH: Vetting Smart Contract State-Inconsistency Bugs in Seconds",
+          "authors": [
+            "Priyanka Bose",
+            "Dipanjan Das",
+            "Yanju Chen",
+            "Yu Feng",
+            "Christopher Kruegel",
+            "Giovanni Vigna"
+          ],
+          "year": 2022,
+          "venue": "2022 IEEE Symposium on Security and Privacy",
+          "doi": "10.1109/SP46214.2022.9833721",
+          "url": "https://arxiv.org/pdf/2104.08638",
+          "tool": {
+            "name": "SAILFISH",
+            "version_or_commit": null,
+            "model": null,
+            "identity_notes": "Exact paper implementation; no commit hash is printed in the paper."
+          },
+          "dataset": {
+            "name": "Etherscan full dataset",
+            "canonical_identity": "89,853 deduplicated Solidity contracts crawled through 2020-10-31",
+            "attempted_count": 89853,
+            "successful_count": 85247,
+            "count_unit": "contract",
+            "timeout_count": 1211,
+            "compilation_failure_count": null,
+            "other_failure_count": 3395,
+            "solidity_profile": "Contracts requiring Solidity <0.3.x and Vyper contracts were excluded before the 89,853-contract dataset. The paper notes 0.8.3 as the latest compiler at writing but gives no version histogram; errors include unsupported versions and framework/infrastructure failures."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": 30.79,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "per_contract",
+            "timeout_policy": "20 minutes per contract",
+            "hardware": "Celery 4.4.4 cluster of six Ubuntu 18.04.3 servers; each has Intel Xeon E5-2690 v2 at 3.00 GHz, 40 cores, and 256 GB memory.",
+            "normalization_formula": "Use the paper-reported full-dataset mean of 30.79 seconds/contract directly.",
+            "normalized_mean_seconds": 30.79,
+            "normalized_basis": "per_contract",
+            "runtime_denominator_notes": "Safe + unsafe = 85,247 completed analyses, but Table IV does not explicitly state whether its mean excludes timeout/error cases; do not reconstruct a total from the mean."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.10, Section VIII-A and Table II",
+              "fact": "Dataset, hardware, 20-minute budget, and outcomes are 83,171 safe, 2,076 unsafe, 1,211 timeout, and 3,395 error."
+            },
+            {
+              "locator": "PDF p.12, Table IV and Section VIII-C",
+              "fact": "SAILFISH mean times are 9.80, 80.78, 246.89, and 30.79 seconds for small, medium, large, and full datasets."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_exact_doi",
+            "metadata_sources": [
+              "paper PDF",
+              "IEEE DOI metadata"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": true,
+            "reason": "Per-contract is supported, but the source has no compiler-bucket distribution/profile to establish scene compatibility."
+          }
+        },
+        {
+          "record_id": "sailfish-smart-learning-2023",
+          "decision": "accepted_measurement",
+          "decision_reason": "Independent USENIX evaluation reports SAILFISH average time per contract and enough exception counts to reconstruct attempted and completed cases.",
+          "title": "Smart Learning to Find Dumb Contracts",
+          "authors": [
+            "Tamer Abdelaziz",
+            "Aquinas Hobor"
+          ],
+          "year": 2023,
+          "venue": "32nd USENIX Security Symposium",
+          "doi": null,
+          "url": "https://www.usenix.org/system/files/usenixsecurity23-abdelaziz.pdf",
+          "tool": {
+            "name": "SAILFISH",
+            "version_or_commit": null,
+            "model": null,
+            "identity_notes": "Table 3 identifies the used SAILFISH release by year 2022, but no version or commit is given."
+          },
+          "dataset": {
+            "name": "Elysium source subset + Reentrancy benchmark + SolidiFI reentrancy subset",
+            "canonical_identity": "Three disjoint tests: 59, 472, and 444 contracts",
+            "attempted_count": 975,
+            "successful_count": 844,
+            "count_unit": "contract",
+            "timeout_count": null,
+            "compilation_failure_count": null,
+            "other_failure_count": 131,
+            "solidity_profile": "No compiler distribution. Sources were lightly cleaned and sometimes moderately upgraded; the authors attribute SAILFISH's 87.8% mean completion rate to an old Slither version incompatible with newer Solidity."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": 10.9,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "per_contract",
+            "timeout_policy": null,
+            "hardware": "12-core 3.2 GHz Intel Core i7-8700 desktop with 16 GB memory",
+            "normalization_formula": "Use Figure 1's reported 10.9 seconds/contract. Completed count derives as (59-6) + (472-125) + (444-0) = 844; do not multiply 10.9 by 844 because Figure 1 does not state a pooled denominator.",
+            "normalized_mean_seconds": 10.9,
+            "normalized_basis": "per_contract",
+            "runtime_denominator_notes": "The 87.8% completion figure is the unweighted mean of the three test completion rates, while the exact weighting behind the 10.9-second runtime marker is not stated."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.2, Figure 1",
+              "fact": "The SAILFISH runtime marker is 10.9 seconds per contract and its mean completion rate is 87.8%."
+            },
+            {
+              "locator": "PDF p.8, Section 4.1",
+              "fact": "The test machine is an i7-8700 desktop with 16 GB memory; benchmark sizes and source cleaning are described."
+            },
+            {
+              "locator": "Extended PDF pp.17-18, Tables 5 and 6",
+              "fact": "SAILFISH exceptions are 6/59, 125/472, and 0/444 for its three reentrancy tests."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_official_proceedings_metadata",
+            "metadata_sources": [
+              "USENIX paper PDF",
+              "USENIX proceedings page",
+              "extended arXiv 2304.10726"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": true,
+            "reason": "Per-contract is supported, but compiler versions, runtime weighting, and exact tool version are insufficient for compatible scene support."
+          }
+        },
+        {
+          "record_id": "sailfish-divertscan-2025",
+          "decision": "accepted_measurement",
+          "decision_reason": "Independent FSE evaluation directly reports mean time per analyzed contract and the analyzed count.",
+          "title": "Detecting Smart Contract State-Inconsistency Bugs via Flow Divergence and Multiplex Symbolic Execution",
+          "authors": [
+            "Yinxi Liu",
+            "Wei Meng",
+            "Yinqian Zhang"
+          ],
+          "year": 2025,
+          "venue": "Proceedings of the ACM on Software Engineering, FSE 2025",
+          "doi": "10.1145/3715712",
+          "url": "https://yinqian.org/papers/fse25.pdf",
+          "tool": {
+            "name": "SAILFISH",
+            "version_or_commit": null,
+            "model": null,
+            "identity_notes": "Baseline tool is SAILFISH configured for both reentrancy and transaction-ordering attacks; no commit is provided."
+          },
+          "dataset": {
+            "name": "D1 Immunefi/Etherscan-network dataset",
+            "canonical_identity": "4,502 contracts from 174 active projects across 11 Etherscan networks",
+            "attempted_count": 4502,
+            "successful_count": 1484,
+            "count_unit": "contract",
+            "timeout_count": 18,
+            "compilation_failure_count": null,
+            "other_failure_count": 3000,
+            "solidity_profile": "No version distribution. The authors state that unsupported Solidity versions prevent SAILFISH from analyzing most contracts; the 3,000 residual non-analyzed cases are not separately classified."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": 29.34,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "per_contract",
+            "timeout_policy": "20 minutes per contract",
+            "hardware": "x86_64 server with four 24-core 2.10 GHz Intel Xeon Platinum 8160 CPUs, Debian 9",
+            "normalization_formula": "Use the reported 29.34 seconds per analyzed contract directly; mean-implied successful runtime = 29.34 x 1,484 = 43,540.56 seconds, but that derived total is not a paper-reported total.",
+            "normalized_mean_seconds": 29.34,
+            "normalized_basis": "per_contract",
+            "runtime_denominator_notes": "The surrounding text links the mean to analyzed contracts; Table 1 reports 1,484 analyzed and 18 timeouts."
+          },
+          "evidence": [
+            {
+              "locator": "PDF pp.13-14, Section 5.1",
+              "fact": "D1 has 4,502 contracts; hardware and a 20-minute per-contract timeout are specified."
+            },
+            {
+              "locator": "PDF p.15, Table 1",
+              "fact": "SAILFISH analyzes 1,484 contracts and has 18 timeouts."
+            },
+            {
+              "locator": "PDF p.16, Scalability paragraph",
+              "fact": "SAILFISH averages 29.34 seconds per analyzed contract and unsupported Solidity versions explain most failures."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_exact_doi",
+            "metadata_sources": [
+              "author-hosted paper PDF",
+              "ACM DOI printed in paper"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": true,
+            "reason": "Per-contract is supported, but the paper supplies no compiler distribution and documents extensive version incompatibility."
+          }
+        },
+        {
+          "record_id": "sailfish-nyx-2024",
+          "decision": "rejected_from_per_contract_average",
+          "decision_reason": "Runtime is valid empirical evidence but its unit is a vulnerability case/contract group, not an individual contract.",
+          "title": "Nyx: Detecting Exploitable Front-Running Vulnerabilities in Smart Contracts",
+          "authors": [
+            "Wuqi Zhang",
+            "Zhuo Zhang",
+            "Qingkai Shi",
+            "Lu Liu",
+            "Lili Wei",
+            "Yepang Liu",
+            "Xiangyu Zhang",
+            "Shing-Chi Cheung"
+          ],
+          "year": 2024,
+          "venue": "2024 IEEE Symposium on Security and Privacy",
+          "doi": "10.1109/SP54263.2024.00146",
+          "url": "https://qingkaishi.github.io/public_pdfs/SP2024.pdf",
+          "tool": {
+            "name": "SAILFISH",
+            "version_or_commit": null,
+            "model": null,
+            "identity_notes": "SAILFISH baseline; no version is printed. Baselines are run on each member contract and aggregated to a contract-group case."
+          },
+          "dataset": {
+            "name": "Front-running vulnerability benchmark",
+            "canonical_identity": "513 real-world vulnerable contract groups, each containing one or more contracts and one exploited vulnerability",
+            "attempted_count": 513,
+            "successful_count": 84,
+            "count_unit": "contract_group",
+            "timeout_count": 1,
+            "compilation_failure_count": null,
+            "other_failure_count": 428,
+            "solidity_profile": "No version distribution. The authors attribute SAILFISH's 428 errors to unsupported newer Solidity versions."
+          },
+          "runtime": {
+            "reported_total_seconds": null,
+            "reported_mean_seconds": 32.83,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "per_contract_group",
+            "timeout_policy": "3 hours per contract-group analysis for each tool; Nyx additionally uses a 15-minute SMT timeout per function pair.",
+            "hardware": "AMD Ryzen 3975X, 512 GB RAM, single-thread execution",
+            "normalization_formula": "Use 32.83 seconds per successfully analyzed group/case only. Mean-implied total = 32.83 x 84 = 2,757.72 seconds; do not divide by member contracts because group cardinalities are not reported per case.",
+            "normalized_mean_seconds": 32.83,
+            "normalized_basis": "per_contract_group",
+            "runtime_denominator_notes": "Table 1 labels 84 cases as successfully analyzed and time as average analysis time; groups may contain multiple contracts."
+          },
+          "evidence": [
+            {
+              "locator": "PDF p.9, benchmark and experiment settings",
+              "fact": "The benchmark has 513 one-or-more-contract groups; baseline tools analyze member contracts individually, then aggregate results."
+            },
+            {
+              "locator": "PDF p.10, Table 1",
+              "fact": "SAILFISH has 1 timeout, 428 errors, 84 successfully analyzed groups, 1,260.87 average LoC, and 32.83-second average time."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_exact_doi",
+            "metadata_sources": [
+              "author-hosted paper PDF",
+              "DBLP DOI metadata",
+              "IEEE proceedings metadata"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": false,
+            "reason": "Contract-group/case is not per-contract, and the source lacks a compiler profile."
+          }
+        },
+        {
+          "record_id": "sailfish-smartrim-2026",
+          "decision": "rejected_cumulative_without_success_denominator",
+          "decision_reason": "The paper reports 1 minute 40 seconds cumulative SAILFISH time over a 49-contract dataset but not SAILFISH's successful completion count.",
+          "title": "SmarTrim: Symbolic Execution for Smart Contracts Powered by Redundant Transaction-Sequence Pruning",
+          "authors": [
+            "Hyegeun Song",
+            "Jiseong Han",
+            "Sunbeom So"
+          ],
+          "year": 2026,
+          "venue": "Proceedings of the ACM on Software Engineering, FSE 2026",
+          "doi": "10.1145/3797074",
+          "url": "https://ku-formal.github.io/assets/pdf/fse26-smartrim.pdf",
+          "tool": {
+            "name": "SAILFISH",
+            "version_or_commit": "bbab10cde68cc12a2f50e85a40dae213f5453259",
+            "model": null,
+            "identity_notes": "Public SAILFISH Docker image tied by the paper reference to the listed commit."
+          },
+          "dataset": {
+            "name": "RE Dataset",
+            "canonical_identity": "49 reentrancy contracts: 43 + 3 + 3 selected from three prior studies; average 226 LoC",
+            "attempted_count": 49,
+            "successful_count": null,
+            "count_unit": "contract",
+            "timeout_count": null,
+            "compilation_failure_count": null,
+            "other_failure_count": null,
+            "common_success_count_across_all_tools": 21,
+            "solidity_profile": "No compiler-version distribution."
+          },
+          "runtime": {
+            "reported_total_seconds": 100.0,
+            "reported_mean_seconds": null,
+            "reported_median_seconds": null,
+            "reported_unit": "seconds",
+            "reported_basis": "campaign_total",
+            "timeout_policy": "30-minute internal and 35-minute external timeout per contract",
+            "hardware": "Ubuntu, AMD Ryzen Threadripper 3970X at 3.7 GHz, 32 cores/64 threads, 62 GB memory; each analyzer used at most 24 threads",
+            "normalization_formula": null,
+            "normalized_mean_seconds": null,
+            "normalized_basis": null,
+            "runtime_denominator_notes": "100/49 = 2.0408 seconds per attempted contract is not a successful-completion mean. The common-success count 21 is across all 12 tools and cannot substitute for a SAILFISH-specific denominator."
+          },
+          "evidence": [
+            {
+              "locator": "PDF pp.13-14, setup and Table 1",
+              "fact": "RE has 49 contracts; only 21 are commonly analyzed by all tools, not necessarily SAILFISH's own success count."
+            },
+            {
+              "locator": "PDF p.14, hardware and timeout setup",
+              "fact": "Per-contract internal/external limits are 30/35 minutes."
+            },
+            {
+              "locator": "PDF p.15, Analysis Time paragraph",
+              "fact": "SAILFISH total runtime is 1 minute 40 seconds for the RE Dataset."
+            },
+            {
+              "locator": "PDF p.20, reference [14]",
+              "fact": "The SAILFISH artifact identity is commit bbab10cde68cc12a2f50e85a40dae213f5453259."
+            }
+          ],
+          "citation_verification": {
+            "status": "verified_primary_full_text_and_exact_doi",
+            "metadata_sources": [
+              "author-hosted paper PDF",
+              "ACM DOI printed in paper",
+              "Zenodo artifact metadata"
+            ]
+          },
+          "scheduler": {
+            "eligible": false,
+            "runtime_basis_eligible": false,
+            "reason": "Cumulative campaign time lacks a tool-specific successful denominator and is explicitly disallowed as completion-time evidence."
+          }
+        }
+      ]
+    }
+  },
+  "search_and_verification_notes": {
+    "paper_search_sources_attempted": [
+      "Crossref",
+      "OpenAlex",
+      "Semantic Scholar",
+      "DBLP",
+      "arXiv",
+      "publisher and author-hosted full texts"
+    ],
+    "service_failures": [
+      "Semantic Scholar returned HTTP 429 during citation searches.",
+      "A generic OpenAlex search returned HTTP 504, while exact-DOI OpenAlex lookups succeeded for the original tool papers.",
+      "A DBLP API search returned HTTP 500; DBLP web metadata and primary PDFs were used where available."
+    ],
+    "secret_handling": "No API key or secret was read, copied, or written during this literature audit."
+  }
+}

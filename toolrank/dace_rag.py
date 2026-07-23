@@ -1,23 +1,24 @@
-"""DACE-RAG: action enumeration, vector retrieval, and evidence matrix construction."""
+"""DACE-RAG: build the Stage 2 action/evidence matrix.
+
+Stage 1 has already selected an immutable primary tool.  This module only asks
+whether a count-qualified complementary tool should be added for a required
+category.
+"""
 
 from __future__ import annotations
 
-import os
+from collections.abc import Iterable
 
-from toolrank.assignment_evidence import (
-    is_assignment_eligible,
-    is_close_local_margin,
-    is_recall_ci_sufficient,
-)
-from toolrank.category_candidates import category_candidate_tools
-from toolrank.ownership_evidence import (
-    attention_categories,
-    category_marginal_value,
-    category_ownership_panel,
-)
+from toolrank.action_contract import action_id_for
+from toolrank.assignment_evidence import complement_count_eligible
+from toolrank.ownership_evidence import category_ownership_panel, rcov_evidence_id
 from toolrank.passage_store import PassageRetriever
-from toolrank.precision_gate import candidate_passes_precision_gate
-from toolrank.solc_range import version_in_range
+from toolrank.plan_runtime import (
+    estimated_budget,
+    plan_constraint_reasons,
+    planning_runtime_minutes,
+    within_budget,
+)
 from toolrank.schemas_v2 import (
     ActionByEvidenceMatrix,
     ActionEvidence,
@@ -26,21 +27,21 @@ from toolrank.schemas_v2 import (
     EvidenceCard,
     EvidenceCardValue,
     EvidenceRef,
-    KnowledgeKind,
-    NominalToolScore,
     Passage,
-    RecallCoverageEntry,
-    RelationToOwner,
-    Step1EvidencePacket,
-    ToolRunSummary,
-    ToolTableEntry,
+    Stage1BenchmarkEvidence,
+    Stage1EvidenceLineage,
+    Stage1Status,
+    Stage1ToolEvidence,
+    Stage2EvidenceContext,
 )
+from toolrank.solc_range import version_in_range
 
 
-__all__ = ["build_action_evidence_matrix"]
+__all__ = [
+    "build_action_evidence_matrix",
+    "project_performance_observation_links",
+]
 
-
-_ALERT_ORDER = {"low": 0, "medium": 1, "high": 2}
 _SLOTS = ("FOR", "AGAINST", "COMPARE", "GAP")
 
 
@@ -48,158 +49,211 @@ def _empty_evidence() -> dict[str, list[ActionEvidence]]:
     return {slot: [] for slot in _SLOTS}
 
 
-def _scene_card_id(tool: str) -> str:
-    return f"ev_scene_{tool}"
-
-
-def _rcov_card_id(tool: str, category: str) -> str:
-    return f"ev_rcov_{tool}_{category}"
-
-
-def _runtime_card_id(tool: str) -> str:
-    return f"ev_runtime_{tool}"
-
-
-def _score_by_tool(packet: Step1EvidencePacket) -> dict[str, NominalToolScore]:
-    return {score.tool: score for score in packet.score_panel.nominal_scores}
-
-
-def _tool_table_by_tool(packet: Step1EvidencePacket) -> dict[str, ToolTableEntry]:
-    return {entry.tool: entry for entry in packet.tool_table}
-
-
-def _feasible_tools(packet: Step1EvidencePacket) -> set[str]:
-    return {entry.tool for entry in packet.tool_table if entry.feasible}
-
-
-def _rcov_by_tool_category(packet: Step1EvidencePacket) -> dict[tuple[str, str], RecallCoverageEntry]:
-    return {
-        (entry.tool, entry.category): entry
-        for entry in packet.recall_coverage.matrix
-    }
-
-
-def _dataset_rows_by_category(packet: Step1EvidencePacket) -> dict[str, list]:
-    rows: dict[str, list] = {}
-    for row in packet.performance_db_view:
-        rows.setdefault(row.category, []).append(row)
-    return rows
-
-
-def _rcov_entries_for_tool(packet: Step1EvidencePacket, tool: str) -> list[RecallCoverageEntry]:
-    return [entry for entry in packet.recall_coverage.matrix if entry.tool == tool]
-
-
-def _alert_max(tools: list[str], table: dict[str, ToolTableEntry]) -> str:
-    alert = "low"
-    for tool in tools:
-        risk = table[tool].tool_cost.alert_risk
-        if _ALERT_ORDER[risk] > _ALERT_ORDER[alert]:
-            alert = risk
-    return alert
-
-
-def _estimated_budget(tools: list[str], table: dict[str, ToolTableEntry]) -> BudgetProfile:
-    if not tools:
-        return BudgetProfile(tool_slots=0, runtime_cap_minutes=0.0, alert_cap="low")
-    runtime = sum(table[tool].tool_cost.expected_runtime_minutes or 0.0 for tool in tools)
-    return BudgetProfile(
-        tool_slots=len(tools),
-        runtime_cap_minutes=runtime,
-        alert_cap=_alert_max(tools, table),
-    )
-
-
-def _legality(estimated: BudgetProfile, budget: BudgetProfile) -> tuple[bool, list[str]]:
-    reasons: list[str] = []
-    if estimated.tool_slots > budget.tool_slots:
-        reasons.append("EXCEEDS_TOOL_SLOTS")
-    if estimated.runtime_cap_minutes > budget.runtime_cap_minutes:
-        reasons.append("EXCEEDS_RUNTIME_CAP")
-    return not reasons, reasons
-
-
-def _make_action(
-    action_id: str,
-    action_type: str,
-    tools: list[str],
+def _append_claim(
     evidence: dict[str, list[ActionEvidence]],
-    budget: BudgetProfile,
-    table: dict[str, ToolTableEntry],
-) -> CandidateAction:
-    estimated = _estimated_budget(tools, table)
-    legal, reasons = _legality(estimated, budget)
-    return CandidateAction(
-        action_id=action_id,
-        action_type=action_type,
-        tools=tools,
-        evidence=evidence,
-        estimated_budget=estimated,
-        legal=legal,
-        legality_reasons=reasons,
+    slot: str,
+    claim: str,
+    refs: Iterable[str],
+) -> None:
+    evidence[slot].append(
+        ActionEvidence(claim=claim, evidence_refs=list(dict.fromkeys(refs)))
     )
 
 
-def _scene_metric_semantics(score: NominalToolScore) -> str:
-    if score.F1_scene is not None:
-        return "historical_f1"
-    if score.R_scene is not None:
-        return "historical_recall"
-    return "qualitative"
-
-
-def _build_evidence_cards(packet: Step1EvidencePacket) -> list[EvidenceCard]:
-    cards: list[EvidenceCard] = []
-    for score in packet.score_panel.nominal_scores:
-        evidence_id = _scene_card_id(score.tool)
-        cards.append(
-            EvidenceCard(
-                evidence_id=evidence_id,
-                source=EvidenceRef(
-                    evidence_id=evidence_id,
-                    source_type="step1_field",
-                    field_path="score_panel.nominal_scores",
-                ),
-                evidence_type="scene_metric",
-                tool=score.tool,
-                metric_semantics=_scene_metric_semantics(score),
-                value=EvidenceCardValue(rate=score.S_scene),
+def _stage1_evidence(context: Stage2EvidenceContext) -> Stage1EvidenceLineage:
+    nominal = {
+        score.tool: score
+        for score in context.stage1.score_panel.nominal_scores
+    }
+    rows_by_tool: dict[str, list[Stage1BenchmarkEvidence]] = {}
+    for row in context.stage1.score_panel.benchmark_scores:
+        rows_by_tool.setdefault(row.tool, []).append(
+            Stage1BenchmarkEvidence(
+                evaluation_id=row.evaluation_id,
+                tool=row.tool,
+                benchmark_id=row.benchmark_id,
+                source_id=row.source_id,
+                dataset_id=row.dataset_id,
+                w_D=row.weight,
+                s_t_D=row.score,
+                recall=row.recall,
+                precision=row.precision,
+                recall_rank=row.recall_rank,
+                precision_rank=row.precision_rank,
             )
         )
 
-    for entry in packet.recall_coverage.matrix:
-        if entry.R_hat is None:
-            continue
-        evidence_id = _rcov_card_id(entry.tool, entry.category)
+    primary = context.stage1.primary_selection.primary_tool
+    assert primary is not None
+    tool_ids = list(
+        dict.fromkeys(
+            [
+                primary,
+                *[
+                    entry.tool
+                    for entry in context.stage1.tool_table
+                    if entry.feasible
+                ],
+            ]
+        )
+    )
+    tools: dict[str, Stage1ToolEvidence] = {}
+    for tool in tool_ids:
+        score = nominal.get(tool)
+        if score is None:
+            raise ValueError(f"Stage 1 score missing for projected tool: {tool}")
+        tools[tool] = Stage1ToolEvidence(
+            tool=tool,
+            S_t=score.S_scene,
+            support_mass=score.support_mass,
+            benchmark_evaluations=rows_by_tool.get(tool, []),
+        )
+    return Stage1EvidenceLineage(
+        primary_tool=primary,
+        benchmark_weights=dict(context.stage1.score_panel.benchmark_weights),
+        tools=tools,
+    )
+
+
+def _evaluation_index(
+    lineage: Stage1EvidenceLineage,
+) -> dict[str, Stage1BenchmarkEvidence]:
+    return {
+        row.evaluation_id: row
+        for tool in lineage.tools.values()
+        for row in tool.benchmark_evaluations
+    }
+
+
+def _evaluation_links(
+    lineage: Stage1EvidenceLineage,
+    *,
+    tool: str,
+    source_ids: Iterable[str] = (),
+    explicit_ids: list[str] | None = None,
+) -> list[str]:
+    rows = _evaluation_index(lineage)
+    if explicit_ids is not None:
+        unique_ids = list(dict.fromkeys(explicit_ids))
+        for evaluation_id in unique_ids:
+            row = rows.get(evaluation_id)
+            if row is None:
+                raise ValueError(
+                    f"explicit Stage 1 evaluation link not found: {evaluation_id}"
+                )
+            if row.tool != tool:
+                raise ValueError(
+                    "explicit Stage 1 evaluation link belongs to another tool: "
+                    f"{evaluation_id}"
+                )
+        return unique_ids
+    exact_sources = set(source_ids)
+    return [
+        row.evaluation_id
+        for row in rows.values()
+        if row.tool == tool and row.source_id in exact_sources
+    ]
+
+
+def project_performance_observation_links(
+    lineage: Stage1EvidenceLineage,
+    passage: Passage,
+) -> list[str]:
+    """Project persistent observation refs only through rows in this run.
+
+    The persistent IDs are never converted with ``stage1_evaluation_id``.
+    Instead, this function selects an already-existing current-lineage row by
+    exact tool, Performance-KB source, and dataset identity.
+    """
+    rows = _evaluation_index(lineage)
+    projected: list[str] = []
+    for reference in passage.performance_observation_refs:
+        for row in rows.values():
+            if (
+                row.tool == reference.tool == passage.owner_tool
+                and row.source_id == reference.source_id
+                and row.dataset_id == reference.dataset_name
+            ):
+                if row.evaluation_id not in projected:
+                    projected.append(row.evaluation_id)
+    return projected
+
+
+def _link_weight(
+    lineage: Stage1EvidenceLineage,
+    linked_evaluation_ids: list[str],
+) -> float | None:
+    if len(linked_evaluation_ids) != 1:
+        return None
+    return _evaluation_index(lineage)[linked_evaluation_ids[0]].w_D
+
+
+def _stage1_score_cards(
+    context: Stage2EvidenceContext,
+    lineage: Stage1EvidenceLineage,
+) -> list[EvidenceCard]:
+    links_by_tool = {
+        tool: [row.evaluation_id for row in evidence.benchmark_evaluations]
+        for tool, evidence in lineage.tools.items()
+    }
+    return [
+        EvidenceCard(
+            evidence_id=f"ev_scene_{score.tool}",
+            source=EvidenceRef(
+                evidence_id=f"ev_scene_{score.tool}",
+                source_type="stage1_field",
+                field_path="score_panel.nominal_scores",
+                extraction_confidence="high",
+            ),
+            evidence_type="stage1_score",
+            tool=score.tool,
+            metric_semantics="qualitative",
+            value=EvidenceCardValue(value=score.S_scene),
+            scope={
+                "rank": score.rank,
+                "support_mass": score.support_mass,
+                "preferred_metric_value": score.preferred_metric_value,
+            },
+            aggregation_level="scene_level",
+            decision_role="support",
+            source_reliability="benchmark",
+            extraction_confidence="high",
+            linked_evaluation_ids=links_by_tool.get(score.tool, []),
+            benchmark_relevance_weight=_link_weight(
+                lineage,
+                links_by_tool.get(score.tool, []),
+            ),
+        )
+        for score in context.stage1.score_panel.nominal_scores
+    ]
+
+
+def _recall_cards(
+    context: Stage2EvidenceContext,
+    lineage: Stage1EvidenceLineage,
+) -> list[EvidenceCard]:
+    cards: list[EvidenceCard] = []
+    for row in context.recall_coverage.matrix:
+        evidence_id = rcov_evidence_id(row.tool, row.category)
+        eligible = complement_count_eligible(rate=row.R_hat, n_eff=row.n_eff)
+        source_ids = [
+            item.source_id
+            for item in context.performance_db_view
+            if item.tool == row.tool and item.category == row.category
+        ]
+        links = _evaluation_links(
+            lineage,
+            tool=row.tool,
+            source_ids=source_ids,
+        )
         cards.append(
             EvidenceCard(
                 evidence_id=evidence_id,
                 source=EvidenceRef(
                     evidence_id=evidence_id,
-                    source_type="step1_field",
+                    source_type="stage2_field",
                     field_path="recall_coverage.matrix",
-                ),
-                evidence_type="per_category_detected_total",
-                tool=entry.tool,
-                category=entry.category,
-                metric_semantics="recall_side_detection_rate",
-                value=EvidenceCardValue(
-                    detected=entry.detected,
-                    total=entry.total,
-                    rate=entry.R_hat,
-                    effective_total=entry.effective_total,
-                ),
-                )
-            )
-
-    for row in packet.performance_db_view:
-        cards.append(
-            EvidenceCard(
-                evidence_id=row.evidence_id,
-                source=EvidenceRef(
-                    evidence_id=row.evidence_id,
-                    source_type="step1_field",
-                    field_path="performance_db_view",
+                    extraction_confidence="high",
                 ),
                 evidence_type="per_category_detected_total",
                 tool=row.tool,
@@ -209,931 +263,581 @@ def _build_evidence_cards(packet: Step1EvidencePacket) -> list[EvidenceCard]:
                     detected=row.detected,
                     total=row.total,
                     rate=row.R_hat,
-                    effective_total=row.effective_total,
+                    n_eff=row.n_eff,
                 ),
-                scope={
-                    "source_id": row.source_id,
-                    "dataset_name": row.dataset_name,
-                },
-            )
-        )
-
-    for entry in packet.tool_table:
-        evidence_id = _runtime_card_id(entry.tool)
-        cards.append(
-            EvidenceCard(
-                evidence_id=evidence_id,
-                source=EvidenceRef(
-                    evidence_id=evidence_id,
-                    source_type="step1_field",
-                    field_path="tool_table",
-                ),
-                evidence_type="runtime_cost",
-                tool=entry.tool,
-                metric_semantics="runtime",
-                value=EvidenceCardValue(value=entry.tool_cost.expected_runtime_minutes),
-            )
-        )
-
-    for row in packet.tool_overall_metrics:
-        cards.append(
-            EvidenceCard(
-                evidence_id=row.evidence_id,
-                source=EvidenceRef(
-                    evidence_id=row.evidence_id,
-                    source_type="step1_field",
-                    field_path="tool_overall_metrics",
-                ),
-                evidence_type="tool_scope",
-                tool=row.tool,
-                metric_semantics="historical_f1",
-                value=EvidenceCardValue(value=row.f1),
-                scope={
-                    "source_id": row.source_id,
-                    "dataset_name": row.dataset_name,
-                    "precision": row.precision,
-                    "recall": row.recall,
-                    "f1": row.f1,
-                    "execution_time_avg": row.execution_time_avg,
-                },
+                scope={"support_level": row.support_level},
+                limitations=[
+                    "detected/total is recall-side evidence and must not be read as precision"
+                ],
+                extraction_confidence="high",
+                aggregation_level="category_level",
+                decision_role="support" if eligible else "gap",
+                source_reliability="benchmark",
+                linked_evaluation_ids=links,
+                benchmark_relevance_weight=_link_weight(lineage, links),
             )
         )
     return cards
 
 
-def _append_scene_claim(
-    evidence: dict[str, list[ActionEvidence]],
-    slot: str,
-    score: NominalToolScore,
-) -> None:
-    evidence[slot].append(
-        ActionEvidence(
-            claim=f"{score.tool} ranks #{score.rank} with S_scene={score.S_scene:.3f}",
-            evidence_refs=[_scene_card_id(score.tool)],
+def _external_performance_cards(
+    context: Stage2EvidenceContext,
+    lineage: Stage1EvidenceLineage,
+) -> list[EvidenceCard]:
+    cards: list[EvidenceCard] = []
+    for row in context.performance_db_view:
+        links = _evaluation_links(
+            lineage,
+            tool=row.tool,
+            source_ids=[row.source_id],
         )
-    )
-
-
-def _append_single_tool_rcov(
-    packet: Step1EvidencePacket,
-    evidence: dict[str, list[ActionEvidence]],
-    tool: str,
-) -> None:
-    for entry in _rcov_entries_for_tool(packet, tool):
-        if entry.R_hat is None:
-            continue
-        if entry.support_level in {"strong"}:
-            evidence["FOR"].append(
-                ActionEvidence(
-                    claim=(
-                        f"{tool} has {entry.support_level} coverage in {entry.category} "
-                        f"(R_hat={entry.R_hat:.2f})"
-                    ),
-                    evidence_refs=[_rcov_card_id(tool, entry.category)],
-                )
-            )
-        elif entry.support_level == "weak":
-            evidence["AGAINST"].append(
-                ActionEvidence(
-                    claim=f"{tool} has weak coverage in {entry.category} (R_hat={entry.R_hat:.2f})",
-                    evidence_refs=[_rcov_card_id(tool, entry.category)],
-                )
-            )
-
-
-def _single_tool_evidence(
-    packet: Step1EvidencePacket,
-    tool: str,
-    *,
-    robust_single: bool,
-) -> dict[str, list[ActionEvidence]]:
-    evidence = _empty_evidence()
-    scores = _score_by_tool(packet)
-    score = scores.get(tool)
-    if score is None:
-        return evidence
-
-    _append_scene_claim(evidence, "FOR", score)
-    _append_single_tool_rcov(packet, evidence, tool)
-
-    top_score = min(packet.score_panel.nominal_scores, key=lambda item: item.rank, default=None)
-    if robust_single and top_score is not None and top_score.tool != tool:
-        evidence["COMPARE"].append(
-            ActionEvidence(
-                claim=(
-                    f"Nominal top-1 is {top_score.tool} (S_scene={top_score.S_scene:.3f}) "
-                    f"vs {tool} (S_scene={score.S_scene:.3f})"
+        cards.append(
+            EvidenceCard(
+                evidence_id=row.evidence_id,
+                source=EvidenceRef(
+                    evidence_id=row.evidence_id,
+                    source_type="stage2_field",
+                    field_path="performance_db_view",
+                    paper_id=row.source_id,
+                    extraction_confidence="high",
                 ),
-                evidence_refs=[_scene_card_id(top_score.tool), _scene_card_id(tool)],
-            )
-        )
-
-    if score.evidence_level != "local_strong":
-        evidence["GAP"].append(
-            ActionEvidence(
-                claim=(
-                    f"Evidence level for {tool} is {score.evidence_level} - "
-                    "limited local benchmarks"
+                evidence_type="per_category_detected_total",
+                tool=row.tool,
+                category=row.category,
+                metric_semantics="recall_side_detection_rate",
+                value=EvidenceCardValue(
+                    detected=row.detected,
+                    total=row.total,
+                    rate=row.R_hat,
+                    n_eff=row.n_eff,
                 ),
-                evidence_refs=[_scene_card_id(tool)],
+                scope={"source_id": row.source_id, "dataset_name": row.dataset_name},
+                limitations=["external benchmark evidence is contextual, not a local eligibility gate"],
+                extraction_confidence="high",
+                aggregation_level="dataset_level",
+                decision_role="compare",
+                source_reliability="benchmark",
+                linked_evaluation_ids=links,
+                benchmark_relevance_weight=_link_weight(lineage, links),
             )
         )
-    return evidence
+    return cards
 
 
-def _support_quality(entry: RecallCoverageEntry | None) -> str:
-    """CI-based local-evidence sufficiency (no fixed sample cutoffs): 'sufficient' iff the
-    primary's recall CI is narrow enough to judge (Wilson half-width <= epsilon_r)."""
-    if entry is None:
-        return "none"
-    if entry.R_hat is None or entry.effective_total is None or entry.effective_total <= 0:
-        return "unknown"
-    if is_recall_ci_sufficient(entry.detected, entry.effective_total, entry.R_hat):
-        return "sufficient"
-    return "insufficient"
-
-
-def _assignable_categories(packet: Step1EvidencePacket) -> list[str]:
-    return attention_categories(packet)
-
-
-def _is_better_category_candidate(
-    entry: RecallCoverageEntry | None,
-    primary_entry: RecallCoverageEntry | None,
-    *,
-    packet: Step1EvidencePacket | None = None,
-    tool: str | None = None,
-) -> bool:
-    if entry is None or entry.R_hat is None or entry.R_hat <= 0:
-        return False
-    if packet is not None and tool is not None and not candidate_passes_precision_gate(packet, tool):
-        return False
-    if not is_assignment_eligible(entry.detected, entry.effective_total, entry.R_hat):
-        return False
-    primary_rate = primary_entry.R_hat if primary_entry and primary_entry.R_hat is not None else 0.0
-    return entry.R_hat > primary_rate
-
-
-def _assignment_candidate_sort_key(item: tuple[str, RecallCoverageEntry]) -> tuple[float, int, str]:
-    tool, entry = item
-    return (-(entry.R_hat or -1.0), -(entry.total or 0), tool)
-
-
-def _composition_planning_evidence(
-    packet: Step1EvidencePacket,
-    primary_tool: str,
-) -> dict[str, list[ActionEvidence]]:
-    evidence = _empty_evidence()
-    scores = _score_by_tool(packet)
-    if primary_tool in scores:
-        _append_scene_claim(evidence, "FOR", scores[primary_tool])
-
-    rcov_by_key = _rcov_by_tool_category(packet)
-    dataset_rows = _dataset_rows_by_category(packet)
-    feasible = _feasible_tools(packet)
-    low_support_categories = set(packet.primary_attention.low_support_categories)
-    for category in _assignable_categories(packet):
-        primary_entry = rcov_by_key.get((primary_tool, category))
-        if category in low_support_categories:
-            rows = [
-                row
-                for row in dataset_rows.get(category, [])
-                if is_assignment_eligible(row.detected, row.effective_total, row.R_hat)
-                and candidate_passes_precision_gate(packet, row.tool)
-            ]
-            if rows:
-                evidence["FOR"].append(
-                    ActionEvidence(
-                        claim=(
-                            f"category={category} primary local recall CI too wide to judge (Wilson half-width > epsilon_r=0.15); "
-                            "cross-dataset evidence rows available for LLM judgment"
-                        ),
-                        evidence_refs=[row.evidence_id for row in rows[:12]],
-                    )
-                )
-            else:
-                evidence["GAP"].append(
-                    ActionEvidence(
-                        claim=(
-                            f"category={category} primary local recall CI too wide to judge (Wilson half-width > epsilon_r=0.15); "
-                            "no cross-dataset assignment-eligible evidence; rely on RAG Tool Knowledge if available"
-                        ),
-                        evidence_refs=[],
-                    )
-                )
+def _overall_metric_cards(
+    context: Stage2EvidenceContext,
+    lineage: Stage1EvidenceLineage,
+) -> list[EvidenceCard]:
+    cards: list[EvidenceCard] = []
+    for row in context.tool_overall_metrics:
+        metrics = (
+            ("historical_precision", row.precision),
+            ("historical_recall", row.recall),
+            ("historical_f1", row.f1),
+        )
+        semantic, value = next(((name, value) for name, value in metrics if value is not None), (None, None))
+        if semantic is None:
             continue
-
-        local_quality = _support_quality(primary_entry)
-        refs = []
-        if primary_entry is not None and primary_entry.R_hat is not None:
-            refs.append(_rcov_card_id(primary_tool, category))
-        stronger_entries: list[tuple[str, RecallCoverageEntry]] = []
-        for tool in sorted(feasible):
-            if tool == primary_tool:
-                continue
-            entry = rcov_by_key.get((tool, category))
-            if not _is_better_category_candidate(entry, primary_entry, packet=packet, tool=tool):
-                continue
-            stronger_entries.append((tool, entry))
-        stronger_entries.sort(key=_assignment_candidate_sort_key)
-        if stronger_entries:
-            refs.extend(_rcov_card_id(tool, category) for tool, _entry in stronger_entries)
-            preferred_tool, preferred_entry = stronger_entries[0]
-            stronger_tools = [
-                f"{tool}={entry.R_hat:.2f}" for tool, entry in stronger_entries
-            ]
-            close_note = ""
-            if len(stronger_entries) >= 2 and is_close_local_margin(
-                preferred_entry.R_hat,
-                preferred_entry.effective_total,
-                stronger_entries[1][1].R_hat,
-                stronger_entries[1][1].effective_total,
-            ):
-                close_note = (
-                    " local candidates are close; compare cross-dataset performance evidence "
-                    "and RAG evidence before assigning owner;"
-                )
-            evidence["FOR"].append(
-                ActionEvidence(
-                    claim=(
-                        f"{category} has feasible complement evidence for primary "
-                        f"{primary_tool}; preferred local evidence is "
-                        f"{preferred_tool}={preferred_entry.R_hat:.2f};"
-                        f"{close_note} "
-                        f"candidates: {', '.join(stronger_tools)}"
-                    ),
-                    evidence_refs=refs,
-                )
+        links = _evaluation_links(
+            lineage,
+            tool=row.tool,
+            source_ids=[row.source_id],
+        )
+        cards.append(
+            EvidenceCard(
+                evidence_id=row.evidence_id,
+                source=EvidenceRef(
+                    evidence_id=row.evidence_id,
+                    source_type="stage2_field",
+                    field_path="tool_overall_metrics",
+                    paper_id=row.source_id,
+                    extraction_confidence="high",
+                ),
+                evidence_type="scene_metric",
+                tool=row.tool,
+                metric_semantics=semantic,
+                value=EvidenceCardValue(value=value),
+                scope={"source_id": row.source_id, "dataset_name": row.dataset_name},
+                limitations=["overall metrics are not category-specific"],
+                aggregation_level="dataset_level",
+                decision_role="caveat" if semantic == "historical_precision" else "compare",
+                source_reliability="benchmark",
+                extraction_confidence="high",
+                linked_evaluation_ids=links,
+                benchmark_relevance_weight=_link_weight(lineage, links),
             )
+        )
+    return cards
+
+
+def _runtime_cards(context: Stage2EvidenceContext) -> list[EvidenceCard]:
+    cards: list[EvidenceCard] = []
+    for entry in context.stage1.tool_table:
+        evidence_id = f"ev_runtime_{entry.tool}"
+        provenance = entry.tool_cost.runtime_provenance
+        assessment = entry.tool_cost.runtime_evidence
+        campaign = entry.tool_cost.fuzz_campaign_budget
+        if provenance is not None:
+            source = EvidenceRef(
+                evidence_id=evidence_id,
+                source_type="paper_table_cell",
+                field_path=(
+                    "tool_performance_data.metrics."
+                    f"{provenance.selected_metric_field}"
+                ),
+                paper_id=provenance.selected_source_id,
+                extraction_confidence="high",
+            )
+            scope = {
+                "feasible": entry.feasible,
+                "alert_risk": entry.tool_cost.alert_risk,
+                "dataset_name": provenance.selected_dataset_name,
+                "runtime_estimation_method": provenance.method,
+                "selected_runtime_seconds": provenance.selected_runtime_seconds,
+                "selected_source_runtime_seconds": provenance.selected_source_runtime_seconds,
+                "candidate_source_ids": provenance.candidate_source_ids,
+                "target_compiler_bucket": provenance.target_compiler_bucket,
+                "target_loc_bucket": provenance.target_loc_bucket,
+                "support_mass": provenance.support_mass,
+                "support_threshold": provenance.support_threshold,
+                "quantile": provenance.quantile,
+                "runtime_basis": provenance.runtime_basis,
+                "runtime_candidates": [
+                    candidate.model_dump(mode="json")
+                    for candidate in provenance.candidates
+                ],
+                "runtime_unit": "minutes",
+                "source_runtime_unit": "seconds",
+            }
+            limitations = list(provenance.limitations)
+            aggregation_level = "dataset_level"
+            source_reliability = "benchmark"
         else:
-            evidence["GAP"].append(
-                ActionEvidence(
-                    claim=(
-                        f"local evidence for {category} is {local_quality}; "
-                        f"no local feasible complement has detected/total support."
-                    ),
-                    evidence_refs=refs,
-                )
+            source = EvidenceRef(
+                evidence_id=evidence_id,
+                source_type="benchmark_metadata",
+                field_path="performance_db.runtime_rows",
+                extraction_confidence="high",
             )
-
-        if local_quality in {"none", "insufficient", "unknown"}:
-            rows = [
-                row
-                for row in dataset_rows.get(category, [])
-                if is_assignment_eligible(row.detected, row.effective_total, row.R_hat)
-                and candidate_passes_precision_gate(packet, row.tool)
+            scope = {
+                "feasible": entry.feasible,
+                "alert_risk": entry.tool_cost.alert_risk,
+                "runtime_unit": "minutes",
+                "runtime_evidence_status": assessment.status if assessment else "NO_RUNTIME_ROWS",
+                "target_compiler_bucket": assessment.target_compiler_bucket if assessment else None,
+                "target_loc_bucket": assessment.target_loc_bucket if assessment else None,
+                "support_mass": assessment.support_mass if assessment else 0.0,
+                "support_threshold": assessment.support_threshold if assessment else 0.2,
+                "quantile": assessment.quantile if assessment else 0.9,
+                "runtime_candidates": [
+                    candidate.model_dump(mode="json")
+                    for candidate in (assessment.candidates if assessment else [])
+                ],
+            }
+            limitations = (
+                list(assessment.limitations)
+                if assessment is not None
+                else ["NO_RUNTIME_ROWS"]
+            )
+            aggregation_level = "dataset_level"
+            source_reliability = "benchmark"
+        literature_summaries = (
+            assessment.descriptive_literature_summaries
+            if assessment is not None
+            else []
+        )
+        if literature_summaries:
+            scope["descriptive_literature_summaries"] = [
+                summary.model_dump(mode="json") for summary in literature_summaries
             ]
-            if rows:
-                evidence["FOR"].append(
-                    ActionEvidence(
-                        claim=(
-                            f"local evidence for {category} is {local_quality}; "
-                            "cross-dataset performance evidence has assignment-eligible refs for LLM judgment."
-                        ),
-                        evidence_refs=[row.evidence_id for row in rows[:12]],
-                    )
+            limitations = list(
+                dict.fromkeys(
+                    [
+                        *limitations,
+                        "LITERATURE_SUMMARY_DESCRIPTIVE_NOT_SCHEDULABLE",
+                    ]
                 )
-            else:
-                evidence["GAP"].append(
-                    ActionEvidence(
-                        claim=(
-                            f"local evidence for {category} is {local_quality}; "
-                            "cross-dataset performance view has no assignment-eligible evidence."
+            )
+        scope["historical_completion_runtime_minutes"] = (
+            entry.tool_cost.expected_runtime_minutes
+        )
+        scope["runtime_semantics"] = "historical_completion_estimate"
+        if campaign is None:
+            scope["planning_runtime_minutes"] = planning_runtime_minutes(entry)
+        cards.append(
+            EvidenceCard(
+                evidence_id=evidence_id,
+                source=source,
+                evidence_type="runtime_cost",
+                tool=entry.tool,
+                metric_semantics="runtime",
+                value=EvidenceCardValue(value=entry.tool_cost.expected_runtime_minutes),
+                scope=scope,
+                limitations=limitations,
+                aggregation_level=aggregation_level,
+                decision_role="constraint",
+                source_reliability=source_reliability,
+                extraction_confidence="high",
+            )
+        )
+        if campaign is not None:
+            campaign_evidence_id = f"ev_fuzz_campaign_{entry.tool}"
+            planning_minutes = planning_runtime_minutes(entry)
+            cards.append(
+                EvidenceCard(
+                    evidence_id=campaign_evidence_id,
+                    source=EvidenceRef(
+                        evidence_id=campaign_evidence_id,
+                        source_type="stage2_field",
+                        field_path=(
+                            "budget_profile.execution_schedule."
+                            "tool_timeout_seconds"
                         ),
-                        evidence_refs=[],
-                    )
+                        extraction_confidence="high",
+                    ),
+                    evidence_type="runtime_cost",
+                    tool=entry.tool,
+                    metric_semantics="runtime",
+                    value=EvidenceCardValue(value=planning_minutes),
+                    scope={
+                        "fuzz_campaign_budget": campaign.model_dump(mode="json"),
+                        "planning_runtime_minutes": planning_minutes,
+                        "planning_runtime_source": campaign.method,
+                        "runtime_semantics": campaign.runtime_semantics,
+                        "runtime_unit": "minutes",
+                        "source_runtime_unit": "seconds",
+                    },
+                    limitations=[
+                        "FUZZ_CAMPAIGN_ALLOCATION_NOT_COMPLETION_ESTIMATE"
+                    ],
+                    aggregation_level="tool_level",
+                    decision_role="constraint",
+                    source_reliability="artifact",
+                    extraction_confidence="high",
                 )
-
-    evidence["AGAINST"].append(
-        ActionEvidence(
-            claim="The model must account for each selected tool's runtime and alert burden.",
-            evidence_refs=[_runtime_card_id(entry.tool) for entry in packet.tool_table if entry.feasible],
-        )
-    )
-    evidence["AGAINST"].append(
-        ActionEvidence(
-            claim="RAG passages and recall hints do not prove union recall for a selected tool set.",
-            evidence_refs=[],
-        )
-    )
-    evidence["COMPARE"].append(
-        ActionEvidence(
-            claim=f"The LLM should compare feasible tools against weak categories of primary {primary_tool}.",
-            evidence_refs=[],
-        )
-    )
-    evidence["GAP"].append(
-        ActionEvidence(
-            claim="Cross-tool overlap and union recall are not identifiable from current evidence",
-            evidence_refs=[],
-        )
-    )
-    return evidence
-
-
-def _stop_evidence(packet: Step1EvidencePacket) -> dict[str, list[ActionEvidence]]:
-    evidence = _empty_evidence()
-    evidence["FOR"].append(
-        ActionEvidence(
-            claim="Stop scheduling under current evidence and budget while unresolved gaps remain explicit",
-            evidence_refs=[],
-        )
-    )
-    weak_categories = sorted(
-        {
-            category
-            for categories in packet.recall_coverage.weak_categories_by_tool.values()
-            for category in categories
-        }
-    )
-    if weak_categories:
-        evidence["AGAINST"].append(
-            ActionEvidence(
-                claim=f"Uncovered weak categories remain: {', '.join(weak_categories)}",
-                evidence_refs=[],
             )
-        )
-    return evidence
+    return cards
 
 
-def _focus_tools(packet: Step1EvidencePacket, feasible: set[str]) -> list[str]:
-    tools: list[str] = []
-    for item in packet.dace_rag_focus:
-        if item.tool in feasible and item.tool not in tools:
-            tools.append(item.tool)
-    return tools
+def _target_features(context: Stage2EvidenceContext) -> dict:
+    raw = context.stage1.target_contract
+    features = raw.get("features") if isinstance(raw, dict) else None
+    return features if isinstance(features, dict) else {}
 
 
-def _add_run_primary(
-    actions: list[CandidateAction],
-    packet: Step1EvidencePacket,
-    budget: BudgetProfile,
-    table: dict[str, ToolTableEntry],
-    feasible: set[str],
-) -> str | None:
-    tool = packet.primary_attention.primary_tool or packet.certification.certified_primary
-    if (
-        packet.certification.status == "certified_primary"
-        and tool
-        and tool in feasible
-        and budget.tool_slots >= 1
-    ):
-        actions.append(
-            _make_action(
-                f"run_primary_{tool}",
-                "RUN_PRIMARY",
-                [tool],
-                _single_tool_evidence(packet, tool, robust_single=False),
-                budget,
-                table,
-            )
-        )
-        return tool
-    return None
+def _scale_bucket(loc_total: object) -> str | None:
+    if not isinstance(loc_total, (int, float)):
+        return None
+    if loc_total <= 500:
+        return "small"
+    if loc_total <= 5000:
+        return "medium"
+    return "large"
 
 
-def _primary_candidate_tool(packet: Step1EvidencePacket, feasible: set[str]) -> str | None:
-    if packet.primary_attention.primary_tool in feasible:
-        return packet.primary_attention.primary_tool
-    if packet.certification.certified_primary in feasible:
-        return packet.certification.certified_primary
-    for tool in packet.certification.candidate_set or []:
-        if tool in feasible:
-            return tool
-    for score in sorted(packet.score_panel.nominal_scores, key=lambda item: item.rank):
-        if score.tool in feasible:
-            return score.tool
-    return None
+def _passage_applies(context: Stage2EvidenceContext, passage: Passage) -> bool:
+    """Conservatively verify machine-readable premises for hard exclusions."""
+    features = _target_features(context)
+    checked = False
+    for tag in passage.applicability_tags:
+        prefix, value = tag.split(":", 1)
+        value = value.strip().lower()
+        if prefix == "solc":
+            checked = True
+            version = features.get("primary_solidity_version")
+            if not isinstance(version, str) or not version_in_range(version, value):
+                return False
+        elif prefix == "scale":
+            checked = True
+            if _scale_bucket(features.get("loc_total")) != value:
+                return False
+        elif prefix == "input":
+            checked = True
+            target_input = features.get("input_mode") or features.get("input_type")
+            if not isinstance(target_input, str) or target_input.strip().lower() != value:
+                return False
+    return checked or not passage.applicability_tags or passage.source_reliability == "manual_curated"
 
 
-def _add_robust_single(
-    actions: list[CandidateAction],
-    packet: Step1EvidencePacket,
-    budget: BudgetProfile,
-    table: dict[str, ToolTableEntry],
-    primary_tool: str | None,
-) -> None:
-    if primary_tool is None:
-        return
-    actions.append(
-        _make_action(
-            f"run_robust_single_{primary_tool}",
-            "RUN_ROBUST_SINGLE",
-            [primary_tool],
-            _single_tool_evidence(packet, primary_tool, robust_single=True),
-            budget,
-            table,
-        )
-    )
+def _passage_role(passage: Passage) -> str:
+    if passage.relation_to_owner == "owner_ineligible":
+        return "constraint"
+    if passage.relation_to_owner in {"opposes_owner", "owner_weaker"}:
+        return "oppose"
+    if passage.relation_to_owner == "evidence_gap":
+        return "gap"
+    if passage.relation_to_owner in {"owner_stronger", "owner_complements"}:
+        return "compare"
+    return "support"
 
 
-def _add_composition_plan_action(
-    actions: list[CandidateAction],
-    packet: Step1EvidencePacket,
-    budget: BudgetProfile,
-    primary_tool: str | None,
-    evidence_cards: list[EvidenceCard],
-) -> None:
-    if primary_tool is None or budget.tool_slots < 1:
-        return
-    marginal_matrix = ActionByEvidenceMatrix(
-        budget_profile=budget,
-        actions=[],
-        evidence_cards=evidence_cards,
-    )
-    complement_slots = sum(
-        1
-        for category in attention_categories(packet)
-        if category_marginal_value(packet, marginal_matrix, category) in {"high", "medium"}
-    )
-    estimated_budget = BudgetProfile(
-        tool_slots=min(budget.tool_slots, 1 + complement_slots),
-        runtime_cap_minutes=budget.runtime_cap_minutes,
-        alert_cap=budget.alert_cap,
-    )
-    actions.append(
-        CandidateAction(
-            action_id="plan_tool_composition",
-            action_type="PLAN_COMPOSITION",
-            tools=[],
-            evidence=_composition_planning_evidence(packet, primary_tool),
-            estimated_budget=estimated_budget,
-            legal=True,
-            legality_reasons=[],
+def _passage_reliability(passage: Passage) -> str:
+    return {
+        "manual_curated": "manual_curated",
+        "peer_reviewed": "peer_reviewed",
+        "artifact": "artifact",
+        "official_tool_doc": "documentation",
+        "maintainer_issue": "documentation",
+        "internal_eval": "experiment_log",
+    }.get(passage.source_reliability, "unknown")
+
+
+def _rag_card(
+    context: Stage2EvidenceContext,
+    passage: Passage,
+    lineage: Stage1EvidenceLineage,
+) -> EvidenceCard:
+    links = (
+        project_performance_observation_links(lineage, passage)
+        if passage.performance_observation_refs
+        else _evaluation_links(
+            lineage,
+            tool=passage.owner_tool,
+            source_ids=[passage.source_id],
+            explicit_ids=passage.linked_evaluation_ids,
         )
     )
-
-
-def _add_continue_hedges(
-    actions: list[CandidateAction],
-    packet: Step1EvidencePacket,
-    budget: BudgetProfile,
-    table: dict[str, ToolTableEntry],
-    feasible: set[str],
-    run_history: list[ToolRunSummary] | None,
-) -> None:
-    if not run_history:
-        return
-    already_run = {item.tool for item in run_history if item.run_status != "NOT_RUN"}
-    for tool in _focus_tools(packet, feasible):
-        if tool in already_run:
-            continue
-        actions.append(
-            _make_action(
-                f"continue_hedge_{tool}",
-                "CONTINUE_HEDGE",
-                [tool],
-                _single_tool_evidence(packet, tool, robust_single=True),
-                budget,
-                table,
-            )
-        )
-
-
-_RELATION_TO_DECISION_ROLE: dict[RelationToOwner, str] = {
-    "supports_owner": "support",
-    "owner_complements": "support",
-    "opposes_owner": "oppose",
-    "owner_ineligible": "constraint",
-    "owner_stronger": "compare",
-    "owner_weaker": "compare",
-    "evidence_gap": "gap",
-}
-
-_KIND_TO_METRIC_SEMANTICS: dict[KnowledgeKind, str] = {
-    "category_capability": "recall_side_detection_rate",
-    "tool_complementarity": "recall_side_detection_rate",
-    "fp_precision_risk": "historical_precision",
-    "failure_mode": "qualitative",
-    "hard_scheduling_rule": "scope",
-}
-
-_PASSAGE_TO_EVIDENCE_RELIABILITY: dict[str, str] = {
-    "peer_reviewed": "peer_reviewed",
-    "artifact": "artifact",
-    "manual_curated": "manual_curated",
-    "official_tool_doc": "documentation",
-    "maintainer_issue": "documentation",
-    "internal_eval": "experiment_log",
-    "community_report": "unknown",
-}
-
-def _passage_decision_role(passage: Passage) -> str:
-    return _RELATION_TO_DECISION_ROLE[passage.relation_to_owner]
-
-
-def _passage_metric_semantics(passage: Passage) -> str:
-    return _KIND_TO_METRIC_SEMANTICS[passage.knowledge_kind]
-
-
-def _passage_source_reliability(passage: Passage) -> str:
-    return _PASSAGE_TO_EVIDENCE_RELIABILITY[passage.source_reliability]
-
-
-def _passage_linked_source_ids(passage: Passage) -> list[str]:
-    """No private paper-to-dataset bridge is shipped in the public release."""
-    _ = passage
-    return []
-
-
-def _passage_scene_weight(packet: Step1EvidencePacket, passage: Passage) -> float:
-    """Max Gower-KDE scene weight over the passage's linked source benchmarks (0.0 if unlinked)."""
-    linked = {sid for sid in _passage_linked_source_ids(passage) if sid}
-    if not linked:
-        return 0.0
-    best = 0.0
-    for neighbor in packet.scene_pool.neighbors:
-        ids = {i for i in ({neighbor.paper_id} | set(neighbor.provenance_refs or [])) if i}
-        if linked & ids:
-            best = max(best, neighbor.weight)
-    return best
-
-
-def _passage_scene_admissible(packet: Step1EvidencePacket, passage: Passage) -> bool:
-    """Scene-relevance gate: admit a RAG passage only if it is scene-linked (its source
-    benchmark is a scene_pool neighbor with positive weight) or human-curated. Everything
-    else is scene-irrelevant and never enters the evidence matrix.
-
-    NOTE: superseded by tiered admission (_passage_trust_tier); its condition is now the
-    tier1 predicate. Retained for reference; no longer on the admission path."""
-    if passage.source_reliability == "manual_curated":
-        return True
-    return _passage_scene_weight(packet, passage) > 0.0
-
-
-def _passage_paper_id(passage: Passage) -> str | None:
-    raw = passage.source_id
-    if ":" in raw:
-        prefix, _, rest = raw.partition(":")
-        if prefix in {"paper", "issue", "artifact"}:
-            return rest or None
-    return None
-
-
-def _passage_to_evidence_card(passage: Passage, *, trust_tier: str = "tier3") -> EvidenceCard:
-    """Project an owner-oriented Passage into an EvidenceCard."""
-
     return EvidenceCard(
         evidence_id=passage.passage_id,
         source=EvidenceRef(
             evidence_id=passage.passage_id,
             source_type="rag_passage",
-            paper_id=_passage_paper_id(passage),
-            field_path=passage.source_id,
-            extraction_confidence="medium",
+            paper_id=passage.source_id,
+            extraction_confidence="high",
         ),
         evidence_type="rag_passage",
         tool=passage.owner_tool,
         category=passage.category,
-        metric_semantics=_passage_metric_semantics(passage),
-        value=None,
+        metric_semantics="qualitative",
         scope={
-            "owner_tool": passage.owner_tool,
-            "category": passage.category,
+            "source_id": passage.source_id,
             "knowledge_kind": passage.knowledge_kind,
             "relation_to_owner": passage.relation_to_owner,
-            "applicability_tags": list(passage.applicability_tags),
-            "counterpart_tool_ids": list(passage.counterpart_tool_ids),
-            "action_scope": list(passage.action_scope),
             "evidence_basis": passage.evidence_basis,
+            "action_scope": passage.action_scope,
+            "applicability_tags": passage.applicability_tags,
+            "counterpart_tool_ids": passage.counterpart_tool_ids,
+            "applies_to_target": _passage_applies(context, passage),
             "claim_text": passage.claim_text,
-            "source_excerpt": passage.source_excerpt,
-            "linked_source_ids": _passage_linked_source_ids(passage),
-            "trust_tier": trust_tier,
         },
         limitations=[passage.limitations_text] if passage.limitations_text else [],
         aggregation_level="paper_level",
-        decision_role=_passage_decision_role(passage),
-        source_reliability=_passage_source_reliability(passage),
+        decision_role=_passage_role(passage),
+        source_reliability=_passage_reliability(passage),
+        extraction_confidence="high",
+        linked_evaluation_ids=links,
+        benchmark_relevance_weight=_link_weight(lineage, links),
     )
 
 
-def _slot_for_passage(passage: Passage) -> str:
-    role = _passage_decision_role(passage)
-    if role in {"oppose", "constraint"}:
-        return "AGAINST"
-    if role == "support":
-        return "FOR"
-    if role == "compare":
-        return "COMPARE"
-    return "GAP"
-
-
-def _inject_retrieved_evidence(
-    evidence: dict[str, list[ActionEvidence]],
-    passages: list[Passage],
-) -> None:
-    for passage in passages:
-        slot = _slot_for_passage(passage)
-        evidence[slot].append(
-            ActionEvidence(
-                claim=passage.claim_text[:200],
-                evidence_refs=[passage.passage_id],
-            )
-        )
-
-
-def _scene_text(packet: Step1EvidencePacket) -> str:
-    features = packet.target_contract.get("features")
-    if not isinstance(features, dict):
-        return ""
-    pieces: list[str] = []
-    for key, value in sorted(features.items()):
-        if isinstance(value, (str, int, float, bool)):
-            pieces.append(f"{key}={value}")
-        elif isinstance(value, list):
-            vals = [str(item) for item in value if isinstance(item, (str, int, float, bool))]
-            if vals:
-                pieces.append(f"{key}={','.join(vals[:5])}")
-        if len(pieces) >= 5:
-            break
-    return " ".join(pieces)
-
-
-def _build_scheduling_queries(
-    packet: Step1EvidencePacket,
-    feasible_tools: set[str],
-    primary_tool: str,
-    category: str,
-    top_k: int,
-) -> list[dict]:
-    scene_text = _scene_text(packet)
-    candidate_tools = [
-        tool for tool in category_candidate_tools(packet, category, limit=3)
-        if tool in feasible_tools
-    ]
-    if primary_tool not in candidate_tools and primary_tool in feasible_tools:
-        candidate_tools.insert(0, primary_tool)
-
-    queries: list[dict] = []
-    queries.append({
-        "query_text": f"{primary_tool} {category} complement owner scheduling {scene_text}".strip(),
-        "tool_ids": [primary_tool],
-        "categories": [category],
-        "knowledge_kinds": ["tool_complementarity", "hard_scheduling_rule"],
-        "top_k": top_k,
-    })
-    for tool in candidate_tools:
-        queries.append({
-            "query_text": f"{tool} {category} analyzer capability risk scheduling {scene_text}".strip(),
-            "tool_ids": [tool],
-            "categories": [category],
-            "knowledge_kinds": [
-                "category_capability",
-                "fp_precision_risk",
-                "failure_mode",
-                "hard_scheduling_rule",
-            ],
-            "top_k": top_k,
-        })
-        queries.append({
-            "query_text": f"{tool} {category} false positive precision risk scheduling",
-            "tool_ids": [tool],
-            "categories": [category],
-            "knowledge_kinds": ["fp_precision_risk", "failure_mode"],
-            "top_k": 1,
-        })
-    return queries
-
-
-def _retrieve_for_tool_space(
-    retriever: PassageRetriever,
-    packet: Step1EvidencePacket,
-    feasible: set[str],
-    primary_tool: str | None,
-    top_k: int = 3,
-) -> list[Passage]:
-    return _retrieve_for_evidence_needs(
-        retriever,
-        packet,
-        feasible,
-        primary_tool,
-        top_k=top_k,
-    )
-
-
-def _retrieve_for_evidence_needs(
-    retriever: PassageRetriever,
-    packet: Step1EvidencePacket,
-    feasible: set[str],
-    primary_tool: str | None,
-    top_k: int = 1,
-) -> list[Passage]:
-    weak_categories = _assignable_categories(packet)
-    if not primary_tool or not weak_categories:
+def _retrieved_cards(
+    context: Stage2EvidenceContext,
+    retriever: PassageRetriever | None,
+    lineage: Stage1EvidenceLineage,
+) -> list[EvidenceCard]:
+    if retriever is None or not context.required_categories:
         return []
-
-    queries: list[dict] = []
-    for category in weak_categories:
-        queries.extend(
-            _build_scheduling_queries(
-                packet,
-                feasible_tools=feasible,
-                primary_tool=primary_tool,
-                category=category,
-                top_k=top_k,
-            )
-        )
-
-    try:
-        all_results = retriever.batch_search_structured(queries)
-    except Exception:
-        if os.getenv("TOOLRANK_RAG_STRICT_ERRORS", "").strip().lower() in {"1", "true", "yes"}:
-            raise
-        all_results = [[] for _ in queries]
-
-    _allowed_raw = os.environ.get("TOOLRANK_ALLOWED_TOOLS", "").strip()
-    _allowed_set = {t.strip().lower() for t in _allowed_raw.split(",")} if _allowed_raw else None
-
+    tools = [entry.tool for entry in context.stage1.tool_table if entry.feasible]
     passages: list[Passage] = []
+    for categories in (context.required_categories, ["__GLOBAL__"]):
+        try:
+            passages.extend(retriever.retrieve(tools, categories, top_k=max(8, len(tools) * 3)))
+        except (AttributeError, RuntimeError, ValueError):
+            continue
+    cards: list[EvidenceCard] = []
     seen: set[str] = set()
-    for results in all_results:
-        for passage, _score in results:
-            if passage.passage_id in seen:
-                continue
-            if _allowed_set and passage.owner_tool and passage.owner_tool.lower() not in _allowed_set:
-                continue
-            if not _passage_applies_to_target(packet, passage):
-                continue
-            passages.append(passage)
-            seen.add(passage.passage_id)
-    return passages
+    for passage in passages:
+        if passage.passage_id in seen or passage.owner_tool not in tools:
+            continue
+        if "PLAN_COMPOSITION" not in passage.action_scope:
+            continue
+        if passage.category not in {*context.required_categories, "__GLOBAL__"}:
+            continue
+        cards.append(_rag_card(context, passage, lineage))
+        seen.add(passage.passage_id)
+    return cards
 
 
-def _target_solidity_version(packet: Step1EvidencePacket) -> str | None:
-    features = packet.target_contract.get("features")
-    if isinstance(features, dict):
-        value = features.get("primary_solidity_version")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    value = packet.target_contract.get("solidity_version")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
+def _attach_passage_ids(
+    lineage: Stage1EvidenceLineage,
+    cards: list[EvidenceCard],
+) -> Stage1EvidenceLineage:
+    passage_ids: dict[str, list[str]] = {}
+    for card in cards:
+        if card.evidence_type != "rag_passage":
+            continue
+        for evaluation_id in card.linked_evaluation_ids:
+            passage_ids.setdefault(evaluation_id, []).append(card.evidence_id)
 
-
-_SCALE_PREFIX = "scale:"
-
-
-def _target_loc_total(packet: Step1EvidencePacket) -> int | None:
-    features = packet.target_contract.get("features")
-    if isinstance(features, dict):
-        value = features.get("loc_total")
-        if isinstance(value, (int, float)) and value > 0:
-            return int(value)
-    return None
-
-
-def _target_scale_buckets(packet: Step1EvidencePacket) -> set[str]:
-    """Compatible scale buckets for the target contract's LOC.
-
-    The KB scale: vocabulary (small/medium/large) describes a source paper's
-    experimental-corpus size, not an objective LOC cut, so this maps loc_total to
-    an inclusive set of compatible buckets. Missing/zero LOC returns the full set
-    (no information => drop no evidence)."""
-    loc = _target_loc_total(packet)
-    if loc is None:
-        return {"small", "medium", "large"}
-    if loc <= 150:
-        return {"small"}
-    if loc <= 800:
-        return {"small", "medium"}
-    return {"medium", "large"}
-
-
-def _passage_scale_applies(packet: Step1EvidencePacket, passage: Passage) -> bool:
-    scale_tags = {
-        tag.removeprefix(_SCALE_PREFIX)
-        for tag in passage.applicability_tags
-        if tag.startswith(_SCALE_PREFIX)
+    tools = {
+        tool_id: tool.model_copy(
+            update={
+                "benchmark_evaluations": [
+                    row.model_copy(
+                        update={
+                            "linked_passage_ids": list(
+                                dict.fromkeys(passage_ids.get(row.evaluation_id, []))
+                            )
+                        }
+                    )
+                    for row in tool.benchmark_evaluations
+                ]
+            }
+        )
+        for tool_id, tool in lineage.tools.items()
     }
-    if not scale_tags:
-        return True
-    return bool(scale_tags & _target_scale_buckets(packet))
+    return lineage.model_copy(update={"tools": tools})
 
 
-def _passage_has_premise(passage: Passage) -> bool:
-    return any(
-        tag.startswith("solc:") or tag.startswith(_SCALE_PREFIX)
-        for tag in passage.applicability_tags
+def _action(
+    *,
+    action_type: str,
+    primary: str,
+    evidence: dict[str, list[ActionEvidence]],
+    context: Stage2EvidenceContext,
+    budget: BudgetProfile,
+    extra_legal: bool = True,
+    extra_reason: str | None = None,
+) -> CandidateAction:
+    estimate = estimated_budget(
+        [primary],
+        context.stage1.tool_table,
+        budget.execution_schedule,
     )
-
-
-def _passage_applies_to_target(packet: Step1EvidencePacket, passage: Passage) -> bool:
-    solc_tags = [
-        tag.removeprefix("solc:")
-        for tag in passage.applicability_tags
-        if tag.startswith("solc:")
-    ]
-    if solc_tags:
-        version = _target_solidity_version(packet)
-        solc_ok = bool(version) and any(version_in_range(version, tag) for tag in solc_tags)
-    else:
-        solc_ok = True
-    return solc_ok and _passage_scale_applies(packet, passage)
-
-
-def _passage_trust_tier(packet: Step1EvidencePacket, passage: Passage) -> str:
-    """Trusted-tier admission for a RAG passage (premise check is the caller's job).
-
-    tier1: human-curated, or scene-linked (its source benchmark is a scene_pool
-           neighbour with positive Gower-KDE weight) -> authoritative.
-    tier2: has a verifiable solc:/scale: premise that holds for THIS contract
-           (callers gate on _passage_applies_to_target first) -> full evidence.
-    tier3: retrieval-relevant only (no scene link, no verified premise) -> weak hint."""
-    if passage.source_reliability == "manual_curated" or _passage_scene_weight(packet, passage) > 0.0:
-        return "tier1"
-    if _passage_has_premise(passage):
-        return "tier2"
-    return "tier3"
+    legal = estimate is not None and within_budget(estimate, budget) and extra_legal
+    reasons: list[str] = []
+    if estimate is None:
+        constraints = (
+            plan_constraint_reasons(
+                [primary],
+                context.stage1.tool_table,
+                budget.execution_schedule,
+            )
+            if budget.execution_schedule is not None
+            else []
+        )
+        if any(reason.startswith("TOOL_TIMEOUT_TOO_SHORT:") for reason in constraints):
+            reasons.append("PRIMARY_EXCEEDS_EXPLICIT_TOOL_TIMEOUT")
+        else:
+            reasons.append("PRIMARY_RUNTIME_UNKNOWN")
+    elif not within_budget(estimate, budget):
+        reasons.append("PRIMARY_EXCEEDS_BUDGET")
+    if not extra_legal and extra_reason:
+        reasons.append(extra_reason)
+    return CandidateAction(
+        action_id=action_id_for(action_type),
+        action_type=action_type,
+        tools=[primary],
+        evidence=evidence,
+        estimated_budget=estimate,
+        legal=legal,
+        legality_reasons=reasons,
+    )
 
 
 def build_action_evidence_matrix(
-    packet: Step1EvidencePacket,
+    context: Stage2EvidenceContext,
     budget: BudgetProfile,
-    run_history: list[ToolRunSummary] | None = None,
+    *,
     retriever: PassageRetriever | None = None,
-    rag_top_k: int = 3,
 ) -> ActionByEvidenceMatrix:
-    """Top-level entry point: enumerate actions, retrieve passages, build evidence cards, fill slots, and assemble the matrix."""
-    table = _tool_table_by_tool(packet)
-    feasible = _feasible_tools(packet)
-    actions: list[CandidateAction] = []
-    evidence_cards = _build_evidence_cards(packet)
+    """Build the two-action matrix and auditable complement candidate panels."""
+    selection = context.stage1.primary_selection
+    if selection.status != Stage1Status.PRIMARY_SELECTED or not selection.primary_tool:
+        raise ValueError("Stage 2 requires a selected Stage 1 primary tool")
+    primary = selection.primary_tool
 
-    certified_tool = _add_run_primary(actions, packet, budget, table, feasible)
-    primary_tool = certified_tool or _primary_candidate_tool(packet, feasible)
-    _add_robust_single(actions, packet, budget, table, primary_tool)
-    _add_composition_plan_action(actions, packet, budget, primary_tool, evidence_cards)
-    _add_continue_hedges(actions, packet, budget, table, feasible, run_history)
-
-    actions.append(
-        _make_action(
-            "stop_with_gaps",
-            "STOP",
-            [],
-            _stop_evidence(packet),
-            budget,
-            table,
-        )
-    )
-
-    rag_cards: list[EvidenceCard] = []
-    if retriever is not None:
-        seen_passages: set[str] = set()
-        plan_action = next((action for action in actions if action.action_id == "plan_tool_composition"), None)
-        if plan_action is not None:
-            passages = _retrieve_for_tool_space(
-                retriever,
-                packet,
-                feasible,
-                primary_tool,
-                top_k=rag_top_k,
-            )
-            _inject_retrieved_evidence(plan_action.evidence, passages)
-            for passage in passages:
-                if passage.passage_id in seen_passages:
-                    continue
-                if not _passage_applies_to_target(packet, passage):
-                    continue
-                tier = _passage_trust_tier(packet, passage)
-                rag_cards.append(_passage_to_evidence_card(passage, trust_tier=tier))
-                seen_passages.add(passage.passage_id)
-            # Always surface human-curated scheduling rules whose category overlaps any
-            # weak/low_support category, regardless of which candidate tools the per-tool
-            # retrieval queries asked about. manual_curated passages are scene-agnostic
-            # authority and must not be missed because of a narrow candidate_tools selection.
-            attention_category_set = set(_assignable_categories(packet))
-            if attention_category_set:
-                for passage in getattr(retriever, "_passages", []):
-                    if passage.source_reliability != "manual_curated":
-                        continue
-                    if passage.category not in attention_category_set:
-                        continue
-                    if not _passage_applies_to_target(packet, passage):
-                        continue
-                    if passage.passage_id in seen_passages:
-                        continue
-                    rag_cards.append(_passage_to_evidence_card(passage, trust_tier="tier1"))
-                    seen_passages.add(passage.passage_id)
-    all_cards = evidence_cards + rag_cards
-    matrix = ActionByEvidenceMatrix(
-        budget_profile=budget,
-        actions=actions,
-        evidence_cards=all_cards,
-    )
-    ownership_panel = {
-        category: category_ownership_panel(packet, matrix, category)
-        for category in attention_categories(packet)
+    stage1_evidence = _stage1_evidence(context)
+    cards = [
+        *_stage1_score_cards(context, stage1_evidence),
+        *_recall_cards(context, stage1_evidence),
+        *_external_performance_cards(context, stage1_evidence),
+        *_overall_metric_cards(context, stage1_evidence),
+        *_runtime_cards(context),
+        *_retrieved_cards(context, retriever, stage1_evidence),
+    ]
+    stage1_evidence = _attach_passage_ids(stage1_evidence, cards)
+    ownership = {
+        category: category_ownership_panel(context, cards, category, budget)
+        for category in dict.fromkeys(context.required_categories)
     }
-    gap_categories = [
-        category for category, panel in ownership_panel.items()
-        if panel.assignment_status in {"gap", "stop_with_gap"}
+
+    run_evidence = _empty_evidence()
+    primary_entry = next(
+        entry for entry in context.stage1.tool_table if entry.tool == primary
+    )
+    primary_runtime_ref = (
+        f"ev_fuzz_campaign_{primary}"
+        if primary_entry.tool_cost.fuzz_campaign_budget is not None
+        else f"ev_runtime_{primary}"
+    )
+    primary_refs = [f"ev_scene_{primary}", primary_runtime_ref]
+    _append_claim(run_evidence, "FOR", f"Keep immutable Stage 1 primary {primary}", primary_refs)
+    rcov = {(row.tool, row.category): row for row in context.recall_coverage.matrix}
+    for category in context.required_categories:
+        row = rcov.get((primary, category))
+        ref = rcov_evidence_id(primary, category)
+        if row is not None and row.R_hat is not None:
+            slot = "FOR" if row.support_level == "eligible" else "GAP"
+            _append_claim(run_evidence, slot, f"Primary evidence for {category}", [ref])
+
+    composition_evidence = _empty_evidence()
+    for category, panel in ownership.items():
+        for candidate in panel.eligible_candidates:
+            _append_claim(
+                composition_evidence,
+                "FOR",
+                f"Count-qualified complement {candidate.tool} for {category}",
+                candidate.evidence_refs,
+            )
+        if not panel.eligible_candidates:
+            _append_claim(
+                composition_evidence,
+                "GAP",
+                f"No eligible complement for {category}; retain primary",
+                [ref for item in panel.under_evidenced_candidates for ref in item.evidence_refs],
+            )
+    for card in cards:
+        if card.evidence_type != "rag_passage":
+            continue
+        if card.decision_role in {"oppose", "constraint"}:
+            _append_claim(
+                composition_evidence,
+                "AGAINST",
+                str(card.scope.get("claim_text") or "Complement caveat"),
+                [card.evidence_id],
+            )
+        elif card.decision_role == "compare":
+            _append_claim(
+                composition_evidence,
+                "COMPARE",
+                str(card.scope.get("claim_text") or "Complement comparison"),
+                [card.evidence_id],
+            )
+
+    has_complement = any(panel.eligible_candidates for panel in ownership.values())
+    actions = [
+        _action(
+            action_type="RUN_PRIMARY",
+            primary=primary,
+            evidence=run_evidence,
+            context=context,
+            budget=budget,
+        ),
+        _action(
+            action_type="PLAN_COMPOSITION",
+            primary=primary,
+            evidence=composition_evidence,
+            context=context,
+            budget=budget,
+            extra_legal=has_complement,
+            extra_reason="NO_ELIGIBLE_COMPLEMENT",
+        ),
     ]
     return ActionByEvidenceMatrix(
         budget_profile=budget,
+        stage1_evidence=stage1_evidence,
         actions=actions,
-        evidence_cards=all_cards,
-        ownership_panel=ownership_panel,
-        gap_categories=gap_categories,
+        evidence_cards=cards,
+        ownership_panel=ownership,
     )

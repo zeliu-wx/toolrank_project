@@ -1,50 +1,58 @@
-"""Compute scene-conditioned nominal tool scores.
-
-Per dataset (scene-pool neighbor), tools are rank-normalized separately by
-recall and by precision; the two ranks combine with ROC preference weights
-(w_recall, w_precision) into a per-dataset preference score, then aggregate
-across datasets by scene-pool weight w_D into S_scene.
-"""
+"""Paper-faithful Stage 1 benchmark ranking and primary selection."""
 
 from __future__ import annotations
 
+import math
 import re
 
-from toolrank.recall_ci import bootstrap_recall_ci
+from toolrank.numeric_bounds import clamp_normalized_mass
 from toolrank.schemas import PerformanceKnowledgeBase
-from toolrank.schemas_v2 import NominalToolScore, ScenePool
+from toolrank.schemas_v2 import (
+    BenchmarkToolScore,
+    NominalToolScore,
+    PrimarySelection,
+    ScenePool,
+    ScorePanel,
+    Stage1Status,
+    ToolTableEntry,
+    stage1_evaluation_id,
+)
 
 
 def _tool_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
 
 
-def _rank_scores(raw_scores: dict[str, float]) -> dict[str, float]:
-    """Rank tools by value (desc); normalize rank to (n-index)/n in (0, 1].
-
-    A single tool gets 0.0 (no contrast to establish a relative rank)."""
-    if not raw_scores:
-        return {}
-    if len(raw_scores) == 1:
-        return {next(iter(raw_scores)): 0.0}
+def average_ranks(raw_scores: dict[str, float]) -> dict[str, float]:
+    """Return descending 1-based ranks, averaging the positions of exact ties."""
     ranked = sorted(raw_scores.items(), key=lambda item: (-item[1], item[0]))
-    return {tool: (len(ranked) - index) / len(ranked) for index, (tool, _score) in enumerate(ranked)}
+    result: dict[str, float] = {}
+    index = 0
+    while index < len(ranked):
+        end = index + 1
+        while end < len(ranked) and ranked[end][1] == ranked[index][1]:
+            end += 1
+        average = ((index + 1) + end) / 2.0
+        for tool, _value in ranked[index:end]:
+            result[tool] = average
+        index = end
+    return result
+
+
+def phi(rank: float, tool_count: int) -> float:
+    """Normalize a paper rank with ``(n-r+1)/n``."""
+    if tool_count <= 0:
+        raise ValueError("tool_count must be positive")
+    if rank < 1.0 or rank > tool_count:
+        raise ValueError("rank must lie within the comparison pool")
+    return (tool_count - rank + 1.0) / tool_count
 
 
 def _weighted_average(values: list[tuple[float, float]]) -> float | None:
-    total_weight = sum(weight for weight, _value in values)
-    if total_weight <= 0.0:
+    denominator = math.fsum(weight for weight, _value in values)
+    if denominator <= 0.0:
         return None
-    return sum(weight * value for weight, value in values) / total_weight
-
-
-def _evidence_level(rows: list[tuple[float, int, int]], epsilon_r: float) -> tuple[str, float | None, float | None]:
-    ci = bootstrap_recall_ci(rows)
-    if ci is None:
-        return "unsupported", None, None
-    _point, low, high = ci
-    level = "local_strong" if (high - low) / 2.0 <= epsilon_r else "local_weak"
-    return level, low, high
+    return math.fsum(weight * value for weight, value in values) / denominator
 
 
 def compute_scene_scores(
@@ -53,18 +61,23 @@ def compute_scene_scores(
     tool_ids: list[str],
     w_recall: float,
     w_precision: float,
-    epsilon_r: float = 0.15,
-) -> tuple[list[NominalToolScore], dict[str, dict[str, float]]]:
-    entries_by_source = {entry.source_id: entry for entry in kb.entries}
-    requested_by_key = {_tool_key(tool): tool for tool in tool_ids}
+) -> ScorePanel:
+    """Compute ``s_t,D`` and ``S_t`` using only comparable overall metrics.
 
-    score_values: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
-    precision_values: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
-    recall_values: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
-    f1_values: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
-    effective_totals: dict[str, float] = {tool: 0.0 for tool in tool_ids}
-    ci_rows: dict[str, list[tuple[float, int, int]]] = {tool: [] for tool in tool_ids}
-    tool_slice_scores: dict[str, dict[str, float]] = {tool: {} for tool in tool_ids}
+    Category-level ``detected/total`` fields are deliberately never read here.
+    The caller supplies the feasible tool IDs, matching the paper's feasible
+    comparison domain.
+    """
+    entries_by_source = {entry.source_id: entry for entry in kb.entries}
+    requested_by_key: dict[str, str] = {}
+    for tool_id in tool_ids:
+        requested_by_key.setdefault(_tool_key(tool_id), tool_id)
+
+    benchmark_weights = {neighbor.slice_id: neighbor.weight for neighbor in scene_pool.neighbors}
+    benchmark_scores: list[BenchmarkToolScore] = []
+    scores_by_tool: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
+    precision_by_tool: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
+    recall_by_tool: dict[str, list[tuple[float, float]]] = {tool: [] for tool in tool_ids}
 
     for neighbor in scene_pool.neighbors:
         if neighbor.paper_id is None:
@@ -73,67 +86,169 @@ def compute_scene_scores(
         if entry is None:
             continue
 
-        recall_by_tool: dict[str, float] = {}
-        precision_by_tool: dict[str, float] = {}
-        metrics_by_tool = {}
-        total_by_tool: dict[str, float] = {}
-        detected_by_tool: dict[str, int] = {}
+        comparable: dict[str, tuple[float, float]] = {}
         for observation in entry.tool_performance_data:
             tool = requested_by_key.get(_tool_key(observation.tool_name))
             if tool is None:
                 continue
-            metric = observation.metrics
-            metrics_by_tool[tool] = metric
-            counts = observation.vulnerability_score_counts
-            total_by_tool[tool] = float(sum(c.total for c in counts.values())) if counts else 0.0
-            detected_by_tool[tool] = int(sum(c.detected for c in counts.values())) if counts else 0
-            if metric.recall is not None:
-                recall_by_tool[tool] = metric.recall
-            if metric.precision is not None:
-                precision_by_tool[tool] = metric.precision
+            recall = observation.metrics.recall
+            precision = observation.metrics.precision
+            if recall is None or precision is None:
+                continue
+            comparable[tool] = (recall, precision)
 
-        recall_rank = _rank_scores(recall_by_tool)
-        precision_rank = _rank_scores(precision_by_tool)
+        if not comparable:
+            continue
+        recall_ranks = average_ranks({tool: values[0] for tool, values in comparable.items()})
+        precision_ranks = average_ranks({tool: values[1] for tool, values in comparable.items()})
+        tool_count = len(comparable)
 
-        for tool in set(recall_rank) | set(precision_rank):
-            s_dataset = w_recall * recall_rank.get(tool, 0.0) + w_precision * precision_rank.get(tool, 0.0)
-            tool_slice_scores[tool][neighbor.slice_id] = s_dataset
-            score_values[tool].append((neighbor.weight, s_dataset))
-            total_sum = int(total_by_tool.get(tool, 0.0))
-            effective_totals[tool] += neighbor.kernel_density * total_sum
-            if total_sum > 0:
-                detected_sum = detected_by_tool.get(tool, 0)
-                ci_rows[tool].append((neighbor.kernel_density, detected_sum, total_sum))
-            metric = metrics_by_tool[tool]
-            if metric.precision is not None:
-                precision_values[tool].append((neighbor.weight, metric.precision))
-            if metric.recall is not None:
-                recall_values[tool].append((neighbor.weight, metric.recall))
-            if metric.f1 is not None:
-                f1_values[tool].append((neighbor.weight, metric.f1))
+        for tool in sorted(comparable):
+            recall, precision = comparable[tool]
+            recall_rank = recall_ranks[tool]
+            precision_rank = precision_ranks[tool]
+            score = (
+                w_recall * phi(recall_rank, tool_count)
+                + w_precision * phi(precision_rank, tool_count)
+            )
+            benchmark_scores.append(
+                BenchmarkToolScore(
+                    evaluation_id=stage1_evaluation_id(tool, neighbor.slice_id),
+                    tool=tool,
+                    benchmark_id=neighbor.slice_id,
+                    source_id=entry.source_id,
+                    dataset_id=entry.dataset_profile.dataset_name,
+                    weight=neighbor.weight,
+                    recall=recall,
+                    precision=precision,
+                    recall_rank=recall_rank,
+                    precision_rank=precision_rank,
+                    score=score,
+                )
+            )
+            scores_by_tool[tool].append((neighbor.weight, score))
+            recall_by_tool[tool].append((neighbor.weight, recall))
+            precision_by_tool[tool].append((neighbor.weight, precision))
 
     nominal_scores: list[NominalToolScore] = []
     for tool in tool_ids:
-        s_scene = _weighted_average(score_values[tool]) or 0.0
-        ev_level, ci_low, ci_high = _evidence_level(ci_rows[tool], epsilon_r)
+        values = scores_by_tool[tool]
+        support_mass = clamp_normalized_mass(
+            math.fsum(weight for weight, _value in values)
+        )
+        scene_score = _weighted_average(values) or 0.0
+        recall_value = _weighted_average(recall_by_tool[tool])
+        precision_value = _weighted_average(precision_by_tool[tool])
+        if w_recall > w_precision:
+            preferred_value = recall_value
+        elif w_precision > w_recall:
+            preferred_value = precision_value
+        else:
+            preferred_value = None
         nominal_scores.append(
             NominalToolScore(
                 tool=tool,
-                S_scene=s_scene,
+                S_scene=scene_score,
                 rank=1,
-                P_scene=_weighted_average(precision_values[tool]),
-                R_scene=_weighted_average(recall_values[tool]),
-                F1_scene=_weighted_average(f1_values[tool]),
-                effective_total=effective_totals[tool],
-                R_scene_ci_low=ci_low,
-                R_scene_ci_high=ci_high,
-                evidence_level=ev_level,
+                support_mass=support_mass,
+                preferred_metric_value=preferred_value,
+                P_scene=precision_value,
+                R_scene=recall_value,
             )
         )
 
-    nominal_scores.sort(key=lambda item: (-item.S_scene, item.tool))
-    ranked_scores = [
+    nominal_scores.sort(
+        key=lambda item: (
+            -item.S_scene,
+            item.preferred_metric_value is None,
+            -(item.preferred_metric_value or 0.0),
+            item.tool,
+        )
+    )
+    nominal_scores = [
         item.model_copy(update={"rank": rank})
         for rank, item in enumerate(nominal_scores, start=1)
     ]
-    return ranked_scores, tool_slice_scores
+    return ScorePanel(
+        benchmark_weights=benchmark_weights,
+        benchmark_scores=benchmark_scores,
+        nominal_scores=nominal_scores,
+    )
+
+
+def _selection_key(
+    score: NominalToolScore,
+    table: dict[str, ToolTableEntry],
+) -> tuple[float, bool, float, bool, float, str]:
+    runtime = table[score.tool].tool_cost.expected_runtime_minutes
+    return (
+        -score.S_scene,
+        score.preferred_metric_value is None,
+        -(score.preferred_metric_value or 0.0),
+        runtime is None,
+        runtime if runtime is not None else math.inf,
+        score.tool,
+    )
+
+
+def rank_nominal_scores(
+    score_panel: ScorePanel,
+    tool_table: list[ToolTableEntry],
+) -> ScorePanel:
+    """Assign visible ranks with the exact primary-selection comparator."""
+    table = {entry.tool: entry for entry in tool_table}
+    ordered = sorted(
+        score_panel.nominal_scores,
+        key=lambda score: _selection_key(score, table),
+    )
+    score_panel.nominal_scores = [
+        score.model_copy(update={"rank": rank})
+        for rank, score in enumerate(ordered, start=1)
+    ]
+    return score_panel
+
+
+def select_primary(
+    scene_pool: ScenePool,
+    score_panel: ScorePanel,
+    tool_table: list[ToolTableEntry],
+    tau: float = 0.2,
+) -> PrimarySelection:
+    """Directly select the highest-ranked feasible, support-qualified tool."""
+    rank_nominal_scores(score_panel, tool_table)
+    if not scene_pool.neighbors:
+        return PrimarySelection(
+            status=Stage1Status.NO_SCENE_EVIDENCE,
+            tau=tau,
+            reason_codes=["NO_SCENE_EVIDENCE"],
+        )
+
+    table = {entry.tool: entry for entry in tool_table}
+    feasible = {entry.tool for entry in tool_table if entry.feasible}
+    if not feasible:
+        return PrimarySelection(
+            status=Stage1Status.NO_FEASIBLE_TOOL,
+            tau=tau,
+            reason_codes=["NO_FEASIBLE_TOOL"],
+        )
+
+    qualified = [
+        score
+        for score in score_panel.nominal_scores
+        if score.tool in feasible and score.support_mass >= tau
+    ]
+    if not qualified:
+        return PrimarySelection(
+            status=Stage1Status.NO_PRIMARY_WITH_SUFFICIENT_SUPPORT,
+            tau=tau,
+            reason_codes=["NO_PRIMARY_WITH_SUFFICIENT_SUPPORT"],
+        )
+
+    ordered = sorted(qualified, key=lambda score: _selection_key(score, table))
+    return PrimarySelection(
+        status=Stage1Status.PRIMARY_SELECTED,
+        primary_tool=ordered[0].tool,
+        tau=tau,
+        eligible_tools=[score.tool for score in ordered],
+        reason_codes=["FEASIBLE", "SUPPORT_AT_LEAST_TAU", "HIGHEST_STAGE1_SCORE"],
+    )

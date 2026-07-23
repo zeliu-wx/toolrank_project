@@ -1,440 +1,211 @@
-"""Shared ownership evidence helpers for CEGO prompt rendering and checker rules."""
+"""Shared evidence rules for additive Stage 2 category ownership."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from toolrank.assignment_evidence import is_strong_eligible, is_weak_eligible
-from toolrank.precision_gate import candidate_passes_precision_gate
+from toolrank.assignment_evidence import complement_strength_against_primary
+from toolrank.plan_runtime import estimated_budget, within_budget
 from toolrank.schemas_v2 import (
-    ActionByEvidenceMatrix,
+    BudgetProfile,
     CategoryOwnershipPanel,
+    ComplementStrengthResult,
     EvidenceCard,
     OwnerCandidateEvidence,
-    Step1EvidencePacket,
+    RecallCoverageEntry,
+    Stage2EvidenceContext,
 )
 
 
-@dataclass(frozen=True)
-class OwnershipCandidate:
-    tool: str
-    evidence_id: str
-    detected: int | None
-    total: int | None
-    rate: float | None
-    scope: str
-    scene_tier: str
-    scene_priority: int
-
-
-@dataclass(frozen=True)
-class CategoryOwnershipEvidence:
-    category: str
-    group: str
-    preferred: str | None
-    strong_candidates: list[OwnershipCandidate]
-    all_strong_candidates: list[OwnershipCandidate]
-    weak_candidates: list[OwnershipCandidate]
-
-
-STRONG_SCHEDULING_EVIDENCE = "strong"
-USEFUL_SCHEDULING_EVIDENCE = "useful"
-ORDINARY_SCHEDULING_EVIDENCE = "ordinary"
-
-
-def attention_categories(packet: Step1EvidencePacket) -> list[str]:
-    categories = (
-        list(packet.primary_attention.confirmed_weak_categories)
-        + list(packet.primary_attention.low_support_categories)
-        + list(packet.primary_attention.user_mandated_categories)
-    )
-    return list(dict.fromkeys(categories))
-
-
-def category_group(packet: Step1EvidencePacket, category: str) -> str:
-    if category in packet.primary_attention.low_support_categories:
-        return "low_support"
-    return "confirmed_weak"
+def category_group(context: Stage2EvidenceContext, category: str) -> str:
+    if category in context.primary_attention.confirmed_weak_categories:
+        return "confirmed_weak"
+    if category in context.primary_attention.under_evidenced_categories:
+        return "under_evidenced"
+    return "required"
 
 
 def rcov_evidence_id(tool: str, category: str) -> str:
     return f"ev_rcov_{tool}_{category}"
 
 
-def card_scope_text(card: EvidenceCard) -> str:
-    if card.source.field_path == "recall_coverage.matrix":
-        return "local"
-    if card.source.field_path == "performance_db_view":
-        return "external_dataset"
-    return card.source.field_path or card.source.source_type
-
-
-def primary_source_id(packet: Step1EvidencePacket) -> str | None:
-    if not packet.scene_pool.neighbors:
-        return None
-    primary = max(packet.scene_pool.neighbors, key=lambda neighbor: neighbor.weight)
-    return primary.paper_id or None
-
-
-def near_scene_source_ids(packet: Step1EvidencePacket) -> set[str]:
-    if not packet.scene_pool.neighbors:
-        return set()
-    sorted_neighbors = sorted(
-        packet.scene_pool.neighbors,
-        key=lambda neighbor: neighbor.weight,
-        reverse=True,
-    )
-    ids: set[str] = set()
-    for neighbor in sorted_neighbors[1:]:
-        if neighbor.paper_id:
-            ids.add(neighbor.paper_id)
-        ids.update(neighbor.provenance_refs or [])
-    return ids
-
-
-def matched_source_ids(packet: Step1EvidencePacket) -> set[str]:
-    source_id = primary_source_id(packet)
-    return {source_id} if source_id else set()
-
-
-
-def _card_scene_source_ids(card: EvidenceCard) -> list[str]:
-    """Scene-bearing source ids for a card: the dataset id of an external_dataset
-    perf row, or a text passage's same-paper bridged dataset ids (v5 §9). A passage
-    whose paper has no perf table yields none and stays scene-unrelated."""
-    if card_scope_text(card) == "external_dataset":
-        source_id = card.scope.get("source_id")
-        return [source_id] if isinstance(source_id, str) else []
-    if card.evidence_type == "rag_passage":
-        linked = card.scope.get("linked_source_ids")
-        if isinstance(linked, list):
-            return [item for item in linked if isinstance(item, str)]
-    return []
-
-
-def card_scene_weight(packet: Step1EvidencePacket, card: EvidenceCard) -> float | None:
-    """Continuous Gower-KDE scene weight w_D of the card's source benchmark(s).
-    Returns the max w_D over the card's linked source benchmarks, or None when the
-    card has no single scene source (local cross-benchmark aggregate, or unlinked)."""
-    if card_scope_text(card) == "local":
-        return None  # cross-benchmark aggregate — not a single scene
-    source_ids = set(_card_scene_source_ids(card))
-    if not source_ids:
-        return None  # scene-unlinked (e.g. a tool paper with no perf table)
-    best: float | None = None
-    for n in packet.scene_pool.neighbors:
-        ids = {n.paper_id} | set(n.provenance_refs or [])
-        if source_ids & {i for i in ids if i}:
-            best = n.weight if best is None else max(best, n.weight)
-    return best
-
-
-def card_scene_tier(packet: Step1EvidencePacket, card: EvidenceCard) -> str:
-    if card_scope_text(card) == "local":
-        return "local"
-    source_ids = _card_scene_source_ids(card)
-    if not source_ids:
-        return "unrelated"
-    primary = primary_source_id(packet)
-    near = near_scene_source_ids(packet)
-    tier = "unrelated"
-    for source_id in source_ids:
-        if primary is not None and source_id == primary:
-            return "primary"
-        if source_id in near:
-            tier = "near_scene"
-    return tier
-
-
-def card_scene_priority(packet: Step1EvidencePacket, card: EvidenceCard) -> int:
-    tier = card_scene_tier(packet, card)
-    if tier == "local":
-        return 0
-    if tier == "primary":
-        return 1
-    if tier == "near_scene":
-        return 2
-    return 3
-
-
-def _scope_list(card: EvidenceCard, key: str) -> list[str]:
-    value = card.scope.get(key)
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value]
-
-
-def _rag_categories(card: EvidenceCard) -> set[str]:
-    categories = _scope_list(card, "categories")
-    return set(categories or ([card.category] if card.category else []))
-
-
-def is_strong_scheduling_evidence(card: EvidenceCard, *, category: str) -> bool:
-    """Classify hard human-curated category ownership passages."""
-    return (
-        card.evidence_type == "rag_passage"
-        and card.category == category
-        and card.source_reliability == "manual_curated"
-        and str(card.scope.get("knowledge_kind") or "") == "category_capability"
-        and str(card.scope.get("relation_to_owner") or "") == "owner_stronger"
-    )
-
-
-def scheduling_evidence_priority(card: EvidenceCard, *, category: str) -> str:
-    if is_strong_scheduling_evidence(card, category=category):
-        return STRONG_SCHEDULING_EVIDENCE
-    if (
-        card.evidence_type == "rag_passage"
-        and card.category == category
-        and str(card.scope.get("knowledge_kind") or "") == "category_capability"
-    ):
-        return USEFUL_SCHEDULING_EVIDENCE
-    return ORDINARY_SCHEDULING_EVIDENCE
-
-
-def _category_capability_pro_tools(card: EvidenceCard) -> set[str]:
-    if str(card.scope.get("knowledge_kind") or "") != "category_capability":
-        return set()
-    relation_to_owner = str(card.scope.get("relation_to_owner") or "")
-    if relation_to_owner in {"supports_owner", "owner_stronger"}:
-        return {card.tool} if card.tool else set()
-    if relation_to_owner:
-        return set()
-    return set()
-
-
-def _candidate_from_card(packet: Step1EvidencePacket, card: EvidenceCard) -> OwnershipCandidate:
-    value = card.value
-    return OwnershipCandidate(
-        tool=card.tool or "",
-        evidence_id=card.evidence_id,
-        detected=value.detected if value is not None else None,
-        total=value.total if value is not None else None,
-        rate=value.rate if value is not None else None,
-        scope=card_scope_text(card),
-        scene_tier=card_scene_tier(packet, card),
-        scene_priority=card_scene_priority(packet, card),
-    )
-
-
-def _candidate_sort_key(candidate: OwnershipCandidate) -> tuple[int, float, int, str, str]:
-    return (
-        candidate.scene_priority,
-        -(candidate.rate if candidate.rate is not None else -1.0),
-        -(candidate.total or 0),
-        candidate.tool,
-        candidate.evidence_id,
-    )
-
-
-def _top_candidates_by_tool(candidates: list[OwnershipCandidate]) -> list[OwnershipCandidate]:
-    selected: list[OwnershipCandidate] = []
-    seen_tools: set[str] = set()
-    for candidate in sorted(candidates, key=_candidate_sort_key):
-        if candidate.tool in seen_tools:
-            continue
-        selected.append(candidate)
-        seen_tools.add(candidate.tool)
-    return selected
-
-
-def near_scene_strong_candidates(
-    ownership: CategoryOwnershipEvidence,
-) -> list[OwnershipCandidate]:
+def category_capability_pro_refs(
+    cards: list[EvidenceCard], *, tool: str, category: str
+) -> list[str]:
     return [
-        candidate
-        for candidate in ownership.all_strong_candidates
-        if candidate.scope == "external_dataset" and candidate.scene_tier == "near_scene"
+        card.evidence_id
+        for card in cards
+        if card.tool == tool
+        and card.category == category
+        and card.evidence_type == "rag_passage"
+        and card.scope.get("knowledge_kind") == "category_capability"
+        and card.scope.get("relation_to_owner") in {"supports_owner", "owner_stronger"}
     ]
 
 
-def unrelated_strong_candidates(
-    ownership: CategoryOwnershipEvidence,
-) -> list[OwnershipCandidate]:
+def applicable_owner_ineligible_refs(
+    cards: list[EvidenceCard], *, tool: str, category: str
+) -> list[str]:
     return [
-        candidate
-        for candidate in ownership.all_strong_candidates
-        if candidate.scope == "external_dataset" and candidate.scene_tier == "unrelated"
+        card.evidence_id
+        for card in cards
+        if card.tool == tool
+        and card.category in {category, "__GLOBAL__"}
+        and card.evidence_type == "rag_passage"
+        and card.scope.get("relation_to_owner") == "owner_ineligible"
+        and card.scope.get("applies_to_target") is True
     ]
 
 
-def category_marginal_value(
-    packet: Step1EvidencePacket,
-    matrix: ActionByEvidenceMatrix,
-    category: str,
-) -> str:
-    """Return one of: 'high' / 'medium' / 'low' / 'none'."""
-    ownership = category_ownership_evidence(packet, matrix, category)
-    if ownership.preferred:
-        near = near_scene_strong_candidates(ownership)
-        if any(candidate.tool == ownership.preferred for candidate in near):
-            return "high"
-        return "medium"
-    if ownership.weak_candidates:
-        return "low"
-    return "none"
+def candidate_caveat_refs(
+    cards: list[EvidenceCard], *, tool: str, category: str
+) -> list[str]:
+    return [
+        card.evidence_id
+        for card in cards
+        if card.tool == tool
+        and card.category in {category, "__GLOBAL__"}
+        and card.decision_role in {"oppose", "constraint", "caveat"}
+    ]
 
 
-def _packet_support_level(packet: Step1EvidencePacket, *, tool: str, category: str) -> str:
-    for entry in packet.recall_coverage.matrix:
-        if entry.tool == tool and entry.category == category:
-            return entry.support_level
-    return "unsupported"
-
-
-def _candidate_evidence(
-    candidate: OwnershipCandidate,
+def _candidate(
+    *,
+    tool: str,
     category: str,
     eligibility: str,
+    row: RecallCoverageEntry | None,
+    evidence_refs: list[str],
+    caveat_refs: list[str],
+    strength: ComplementStrengthResult,
 ) -> OwnerCandidateEvidence:
-    scope = "unrelated_external" if candidate.scene_tier == "unrelated" else candidate.scene_tier
     return OwnerCandidateEvidence(
-        tool=candidate.tool,
+        tool=tool,
         category=category,
         eligibility=eligibility,
-        evidence_scope=scope,
-        evidence_refs=[candidate.evidence_id],
-        caveat_refs=[],
-        detected=candidate.detected,
-        total=candidate.total,
-        rate=candidate.rate,
+        evidence_scope="local",
+        evidence_refs=evidence_refs,
+        caveat_refs=caveat_refs,
+        detected=row.detected if row else None,
+        total=row.total if row else None,
+        rate=row.R_hat if row else None,
+        n_eff=row.n_eff if row else None,
+        strength=strength,
     )
 
 
 def category_ownership_panel(
-    packet: Step1EvidencePacket,
-    matrix: ActionByEvidenceMatrix,
+    context: Stage2EvidenceContext,
+    cards: list[EvidenceCard],
     category: str,
+    budget: BudgetProfile,
 ) -> CategoryOwnershipPanel:
-    evidence = category_ownership_evidence(packet, matrix, category)
-    strong_source = [
-        candidate
-        for candidate in evidence.strong_candidates
-        if _packet_support_level(packet, tool=candidate.tool, category=category) == "strong"
-    ]
-    demoted = [
-        candidate
-        for candidate in evidence.strong_candidates
-        if candidate not in strong_source
-    ]
-    weak_source = list(evidence.weak_candidates) + demoted
-    strong = [_candidate_evidence(candidate, category, "strong") for candidate in strong_source]
-    weak = [_candidate_evidence(candidate, category, "weak") for candidate in weak_source]
-    # aligned to paper: no deterministic preferred in decision path (Phase-1 Task-3)
-    unrelated_external_only = bool(strong) and all(
-        candidate.evidence_scope == "unrelated_external" for candidate in strong
+    """Build the auditable candidate slate for one required category."""
+    primary = context.stage1.primary_selection.primary_tool
+    decision = next(
+        item
+        for item in context.primary_category_decisions
+        if item.category == category
     )
-    has_strong = bool(strong)
-    if has_strong:
-        assignment_status = "assigned"
-        gap_reason = ""
+    if decision.status == "PRIMARY_SUFFICIENT":
+        return CategoryOwnershipPanel(
+            category=category,
+            diagnostic=category_group(context, category),
+            primary_decision=decision,
+            assignment_status="PRIMARY_SUFFICIENT",
+            primary_only_reason="PRIMARY_CATEGORY_EVIDENCE_SUFFICIENT",
+        )
+    rows = {(row.tool, row.category): row for row in context.recall_coverage.matrix}
+    primary_row = rows.get((primary, category)) if primary else None
+    eligible: list[OwnerCandidateEvidence] = []
+    under: list[OwnerCandidateEvidence] = []
+    rejected: list[OwnerCandidateEvidence] = []
+
+    for entry in sorted(context.stage1.tool_table, key=lambda item: item.tool):
+        tool = entry.tool
+        if tool == primary:
+            continue
+        row = rows.get((tool, category))
+        base_ref = [rcov_evidence_id(tool, category)] if row is not None else []
+        pro_refs = category_capability_pro_refs(cards, tool=tool, category=category)
+        hard_refs = applicable_owner_ineligible_refs(cards, tool=tool, category=category)
+        caveat_refs = candidate_caveat_refs(cards, tool=tool, category=category)
+        refs = list(dict.fromkeys([*base_ref, *pro_refs]))
+        strength = complement_strength_against_primary(
+            candidate_rate=row.R_hat if row else None,
+            candidate_n_eff=row.n_eff if row else None,
+            primary_rate=primary_row.R_hat if primary_row else None,
+            primary_n_eff=primary_row.n_eff if primary_row else None,
+        )
+
+        estimate = (
+            estimated_budget(
+                [primary, tool],
+                context.stage1.tool_table,
+                budget.execution_schedule,
+            )
+            if primary
+            else None
+        )
+        runtime_ok = estimate is not None and within_budget(estimate, budget)
+        count_ok = strength.candidate_count_qualified
+        if (
+            entry.feasible
+            and strength.evidence_stronger
+            and runtime_ok
+            and not hard_refs
+        ):
+            eligible.append(
+                _candidate(
+                    tool=tool,
+                    category=category,
+                    eligibility="eligible",
+                    row=row,
+                    evidence_refs=refs,
+                    caveat_refs=caveat_refs,
+                    strength=strength,
+                )
+            )
+        elif entry.feasible and row is not None and row.R_hat and not count_ok:
+            under.append(
+                _candidate(
+                    tool=tool,
+                    category=category,
+                    eligibility="under_evidenced",
+                    row=row,
+                    evidence_refs=refs,
+                    caveat_refs=caveat_refs,
+                    strength=strength,
+                )
+            )
+        else:
+            rejected.append(
+                _candidate(
+                    tool=tool,
+                    category=category,
+                    eligibility="ineligible",
+                    row=row,
+                    evidence_refs=refs,
+                    caveat_refs=caveat_refs,
+                    strength=strength,
+                )
+            )
+
+    sort_key = lambda item: (-(item.rate or 0.0), -(item.n_eff or 0.0), item.tool)
+    eligible.sort(key=sort_key)
+    under.sort(key=sort_key)
+    rejected.sort(key=sort_key)
+    if eligible:
+        status = "COMPLEMENT_AVAILABLE"
+        reason = ""
     else:
-        assignment_status = "gap"
-        gap_reason = "no_assignment_eligible_owner_evidence"
+        status = "PRIMARY_ONLY_NO_COMPLEMENT"
+        reason = "NO_EVIDENCE_STRONGER_COMPLEMENT_WITH_VERIFIABLE_BUDGET"
     return CategoryOwnershipPanel(
         category=category,
-        group=evidence.group,
-        assignment_status=assignment_status,
-        strong_candidates=strong,
-        weak_candidates=weak,
-        rejected_candidates=[],
-        gap_reason=gap_reason,
-        unrelated_external_only=unrelated_external_only,
-        caveats=["unrelated_external_only"] if unrelated_external_only else [],
-        required_claim_refs=[],
+        diagnostic=category_group(context, category),
+        primary_decision=decision,
+        assignment_status=status,
+        eligible_candidates=eligible,
+        under_evidenced_candidates=under,
+        rejected_candidates=rejected,
+        primary_only_reason=reason,
     )
-
-
-def category_capability_pro_refs(
-    matrix: ActionByEvidenceMatrix,
-    *,
-    category: str,
-    tool: str,
-) -> list[str]:
-    refs: list[str] = []
-    for card in matrix.evidence_cards:
-        if card.evidence_type != "rag_passage":
-            continue
-        if category not in _rag_categories(card):
-            continue
-        if tool in _category_capability_pro_tools(card):
-            refs.append(card.evidence_id)
-    return refs
-
-
-def category_ownership_evidence(
-    packet: Step1EvidencePacket,
-    matrix: ActionByEvidenceMatrix,
-    category: str,
-) -> CategoryOwnershipEvidence:
-    primary_tool = packet.primary_attention.primary_tool
-    feasible_tools = {entry.tool for entry in packet.tool_table if entry.feasible}
-    group = category_group(packet, category)
-    all_strong: list[OwnershipCandidate] = []
-    weak_candidates: list[OwnershipCandidate] = []
-
-    for card in matrix.evidence_cards:
-        if (
-            card.evidence_type != "per_category_detected_total"
-            or card.category != category
-            or card.tool is None
-            or card.tool == primary_tool
-            or card.tool not in feasible_tools
-            or card.value is None
-        ):
-            continue
-        if not candidate_passes_precision_gate(packet, card.tool):
-            continue
-        candidate = _candidate_from_card(packet, card)
-        if is_weak_eligible(card.value.detected, card.value.total, card.value.rate, True):
-            weak_candidates.append(candidate)
-        if is_strong_eligible(card.value.detected, card.value.effective_total, card.value.rate):
-            all_strong.append(candidate)
-
-    local_strong = [
-        candidate for candidate in all_strong if candidate.scene_tier in {"local", "primary"}
-    ]
-    near_strong = [
-        candidate for candidate in all_strong if candidate.scene_tier == "near_scene"
-    ]
-    unrelated_strong = [
-        candidate for candidate in all_strong if candidate.scene_tier == "unrelated"
-    ]
-    if local_strong:
-        strong_candidates = local_strong
-    elif near_strong:
-        strong_candidates = near_strong
-    else:
-        strong_candidates = unrelated_strong
-    all_strong_candidates = sorted(all_strong, key=_candidate_sort_key)
-    strong_candidates = sorted(strong_candidates, key=_candidate_sort_key)
-    weak_candidates = _top_candidates_by_tool(weak_candidates)
-
-    preferred = strong_candidates[0].tool if strong_candidates else None
-
-    return CategoryOwnershipEvidence(
-        category=category,
-        group=group,
-        preferred=preferred,
-        strong_candidates=strong_candidates,
-        all_strong_candidates=all_strong_candidates,
-        weak_candidates=weak_candidates,
-    )
-
-
-def dataset_support_refs(
-    matrix: ActionByEvidenceMatrix,
-    *,
-    tool: str,
-    category: str,
-) -> set[str]:
-    refs: set[str] = set()
-    for card in matrix.evidence_cards:
-        if (
-            card.evidence_type == "per_category_detected_total"
-            and card.tool == tool
-            and card.category == category
-            and card_scope_text(card) == "external_dataset"
-        ):
-            refs.add(card.evidence_id)
-    return refs

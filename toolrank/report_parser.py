@@ -12,12 +12,21 @@ extracts findings, and returns them as raw dicts suitable for
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
+from toolrank.categories import normalize_category
+
 logger = logging.getLogger(__name__)
+
+
+# Explicitly distinguishes parser-owned normalized projections from arbitrary
+# analyzer JSON.  Structural guessing is unsafe because a legitimate finding
+# may itself contain keys such as ``raw``, ``category``, and ``location``.
+PARSER_PROJECTION_MARKER = "__lakes_parser_finding_projection_v1__"
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +201,7 @@ def _parse_sarif_file(
 
             # Category: prefer rule shortDescription, tags, or ruleId
             tags = rule.get("properties", {}).get("tags", [])
-            category = (
+            category = normalize_category(
                 _first_tag_as_category(tags)
                 or rule.get("shortDescription", {}).get("text", "")
                 or rule_id
@@ -222,12 +231,14 @@ def _parse_sarif_file(
             explanation = message or rule.get("fullDescription", {}).get("text", "")
 
             findings.append({
+                PARSER_PROJECTION_MARKER: True,
                 "source_tool": tool_id,
                 "category": category,
                 "location": location,
                 "severity": severity,
                 "confidence": confidence,
                 "explanation": explanation,
+                "raw": deepcopy(result),
             })
 
     return findings
@@ -374,10 +385,12 @@ def _normalize_json_finding(
     )
 
     return {
+        PARSER_PROJECTION_MARKER: True,
         "source_tool": item.get("source_tool", tool_id),
-        "category": category,
+        "category": normalize_category(category),
         "location": location,
         "severity": severity,
         "confidence": confidence,
         "explanation": explanation,
+        "raw": deepcopy(item),
     }

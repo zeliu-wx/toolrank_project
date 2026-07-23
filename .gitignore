@@ -34,7 +34,6 @@ experiments_*/
 docs/
 examples/
 scripts/
-tests/
 docker/vendor/gptscan/src/output.json
 docker/vendor/gptscan/src/output.json.metadata.json
 docker/vendor/securify2/out/

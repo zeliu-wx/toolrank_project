@@ -1,19 +1,59 @@
 from __future__ import annotations
 
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Mapping, Optional, Set
 
+from toolrank.compilation import (
+    CompilationBundleError,
+    CompilationStatus,
+    Stage3CompilationBundle,
+    build_compilation_bundle,
+    failed_compilation_bundle,
+    validate_compilation_bundle,
+    write_compilation_bundle,
+    write_compilation_manifest,
+)
+from toolrank.process_deadline import run_process_with_deadline
+from toolrank.execution_status import aggregate_tool_status_history
 from toolrank.report_parser import load_per_tool_findings
-from toolrank.schemas import CompositionPlan, ExecutionResult
+from toolrank.report_validity import (
+    OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+    clear_selected_run_artifacts,
+    make_run_quarantine_root,
+    promote_valid_report_tree,
+    remove_or_quarantine_tree,
+)
+from toolrank.schemas import (
+    CompositionPlan,
+    ExecutionResult,
+    ToolArtifactConsumption,
+    ToolExecutionStatus,
+)
 
 logger = logging.getLogger(__name__)
+COMPILATION_FAILURE_RETURN_CODE = 66
+
+
+def _resolved_artifact_consumption(
+    fallback: Mapping[str, ToolArtifactConsumption],
+    statuses: Mapping[str, ToolExecutionStatus],
+) -> dict[str, ToolArtifactConsumption]:
+    return {
+        tool: status.artifact_consumption or fallback[tool]
+        for tool, status in statuses.items()
+        if status.artifact_consumption is not None or tool in fallback
+    }
 
 
 def _env_value(*names: str) -> str:
@@ -45,6 +85,7 @@ def _stream_runner_output(
     command: List[str],
     *,
     cwd: Optional[str],
+    env: Mapping[str, str] | None = None,
     tail_chars: int = 4000,
 ) -> tuple[int, Optional[str], Optional[str]]:
     """Run a command while streaming stdout/stderr to the terminal.
@@ -52,9 +93,18 @@ def _stream_runner_output(
     The process output is also retained in bounded buffers so the caller can
     persist `stdout_tail` / `stderr_tail` into `ExecutionResult`.
     """
+    child_env = os.environ.copy()
+    if env:
+        child_env.update(env)
+    redactions = [
+        value
+        for key, value in (env or {}).items()
+        if value and any(token in key.upper() for token in ("KEY", "TOKEN", "SECRET"))
+    ]
     proc = subprocess.Popen(
         command,
         cwd=cwd or None,
+        env=child_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -83,12 +133,15 @@ def _stream_runner_output(
             return
         try:
             for line in stream:
-                sink.write(line)
+                safe_line = line
+                for secret in redactions:
+                    safe_line = safe_line.replace(secret, "***")
+                sink.write(safe_line)
                 sink.flush()
                 if is_stdout:
-                    stdout_len = _append(buf, lock, stdout_len, line)
+                    stdout_len = _append(buf, lock, stdout_len, safe_line)
                 else:
-                    stderr_len = _append(buf, lock, stderr_len, line)
+                    stderr_len = _append(buf, lock, stderr_len, safe_line)
         finally:
             stream.close()
 
@@ -117,10 +170,9 @@ def _stream_runner_output(
 
 def _tool_category_mapping(plan: CompositionPlan) -> Dict[str, List[str]]:
     mapping: Dict[str, List[str]] = {}
-    for category, tool_id in plan.category_assignments.items():
-        if tool_id == plan.anchor_tool_id:
-            continue
-        mapping.setdefault(tool_id, []).append(category)
+    for category, owners in plan.category_owners.items():
+        for tool_id in owners[1:]:
+            mapping.setdefault(tool_id, []).append(category)
     for tool_id in mapping:
         mapping[tool_id] = sorted(set(mapping[tool_id]))
     return dict(sorted(mapping.items()))
@@ -135,6 +187,11 @@ def _tool_category_arg(mapping: Dict[str, List[str]]) -> str:
     return ",".join(parts)
 
 
+def _timeout_cli_value(timeout_seconds: float) -> str:
+    """Serialize the checked outer deadline without rounding it upward."""
+    return format(float(timeout_seconds), ".15g")
+
+
 def build_execution_plan(
     target_path: str | Path,
     results_root: str | Path,
@@ -142,22 +199,19 @@ def build_execution_plan(
     *,
     runner_script: str | Path | None = None,
     runner_cwd: str | Path | None = None,
-    tool_timeout_sec: int = 1200,
     gptscan_timeout_sec: int = 600,
-    execution_jobs: int = 0,
-    openai_api_key: Optional[str] = None,
-    openai_api_base: Optional[str] = None,
     write_lakes_output: bool = True,
+    selected_tool_solc_ranges: Mapping[str, str] | None = None,
 ) -> ExecutionResult:
     runner_script_path = Path(runner_script) if runner_script else DEFAULT_RUNNER_SCRIPT
     if runner_script_path is None:
         raise ValueError("No runner script configured. Set LAKES_RUNNER_SCRIPT or pass --runner-script.")
     runner_cwd_path = Path(runner_cwd) if runner_cwd else DEFAULT_RUNNER_CWD
     selected = composition.selected_tool_ids
-    if execution_jobs < 0:
-        raise ValueError("execution_jobs must be non-negative")
-    effective_jobs = len(selected) if execution_jobs == 0 else execution_jobs
-    primary = composition.anchor_tool_id or (selected[0] if selected else None)
+    schedule = composition.execution_schedule
+    if schedule.execution_jobs != 0 and schedule.execution_jobs < len(selected):
+        raise ValueError("execution_jobs must provide one worker per selected tool")
+    primary = composition.primary_tool_id
     category_mapping = _tool_category_mapping(composition)
     command = [
         "python",
@@ -169,24 +223,31 @@ def build_execution_plan(
         "--primary_tool",
         primary or "",
         "--timeout",
-        str(tool_timeout_sec),
+        _timeout_cli_value(schedule.tool_timeout_seconds),
         "--gptscan_timeout",
         str(gptscan_timeout_sec),
     ]
-    if execution_jobs != 0 or effective_jobs > 1:
-        command.extend(["--jobs", str(effective_jobs)])
+    command.extend(["--jobs", str(schedule.execution_jobs)])
     tool_categories = _tool_category_arg(category_mapping)
     if tool_categories:
         command.extend(["--tool_categories", tool_categories])
-    if openai_api_key:
-        command.extend(["--openai_api_key", openai_api_key])
-    if openai_api_base:
-        command.extend(["--openai_api_base", openai_api_base])
     if not write_lakes_output:
         command.append("--no-lakes-output")
+    normalized_ranges = {
+        tool: value
+        for tool, value in (selected_tool_solc_ranges or {}).items()
+        if tool in selected and value
+    }
+    if normalized_ranges:
+        command.extend(
+            [
+                "--tool-solc-ranges",
+                json.dumps(normalized_ranges, sort_keys=True, separators=(",", ":")),
+            ]
+        )
 
     fusion_summary = (
-        f"primary={primary}; category_overrides={category_mapping}"
+        f"primary={primary}; additive_complements={category_mapping}"
         if primary
         else "no primary tool selected"
     )
@@ -198,71 +259,445 @@ def build_execution_plan(
         runner_script=str(runner_script_path.resolve()),
         runner_cwd=str(runner_cwd_path.resolve()) if runner_cwd_path else None,
         runner_command=command,
-        primary_tool=primary,
-        tool_categories=category_mapping,
+        selected_tool_ids=selected,
+        primary_tool_id=primary,
+        category_owners=composition.category_owners,
+        estimated_plan_runtime_minutes=composition.estimated_plan_runtime_minutes,
+        execution_schedule=schedule,
+        selected_tool_solc_ranges=normalized_ranges,
+        tool_statuses={tool: ToolExecutionStatus() for tool in selected},
         fusion_summary=fusion_summary,
     )
 
 
-def _native_smartbugs_execute(plan: ExecutionResult) -> ExecutionResult:
+def _prepare_compilation(plan: ExecutionResult) -> tuple[ExecutionResult, Stage3CompilationBundle]:
+    target_path = Path(plan.target_path or "")
+    selected_tools = list(dict.fromkeys(plan.selected_tool_ids))
+    try:
+        bundle = plan.compilation_bundle
+        if bundle is None:
+            bundle = build_compilation_bundle(
+                target_path,
+                selected_tools,
+                selected_tool_solc_ranges=plan.selected_tool_solc_ranges,
+            )
+        elif bundle.manifest.status != CompilationStatus.FAILED:
+            validate_compilation_bundle(bundle, target_path, selected_tools)
+    except CompilationBundleError as exc:
+        bundle = failed_compilation_bundle(
+            target_path,
+            selected_tools,
+            code=exc.code,
+            detail=exc.detail,
+        )
+    return (
+        plan.model_copy(
+            update={
+                "compilation": bundle.manifest,
+                "artifact_consumption": bundle.tool_consumption,
+                "compilation_bundle": bundle,
+            }
+        ),
+        bundle,
+    )
+
+
+def _compilation_failed_result(
+    plan: ExecutionResult,
+    bundle: Stage3CompilationBundle,
+    *,
+    execution_mode: str,
+) -> ExecutionResult:
+    reason = bundle.manifest.failure_reason
+    detail = (
+        f"compilation {reason.code}: {reason.detail}" if reason is not None else "compilation failed"
+    )
+    statuses = {
+        tool: ToolExecutionStatus(
+            status="NOT_RUN",
+            detail=detail,
+            artifact_consumption=bundle.tool_consumption.get(tool),
+        )
+        for tool in plan.selected_tool_ids
+    }
+    results_root = Path(plan.results_root) if plan.results_root else None
+    if results_root is not None:
+        results_root.mkdir(parents=True, exist_ok=True)
+        write_compilation_manifest(bundle, results_root)
+        (results_root / "tool_run_statuses.json").write_text(
+            json.dumps(
+                {
+                    tool: status.model_dump(mode="json")
+                    for tool, status in statuses.items()
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    return plan.model_copy(
+        update={
+            "status": "failed",
+            "execution_mode": execution_mode,
+            "return_code": (
+                124
+                if reason is not None and reason.code == "COMPILATION_TIMEOUT"
+                else COMPILATION_FAILURE_RETURN_CODE
+            ),
+            "stderr_tail": detail[-4000:],
+            "tool_statuses": statuses,
+            "per_tool_findings": {},
+            "compilation": bundle.manifest,
+            "artifact_consumption": bundle.tool_consumption,
+            "compilation_bundle": bundle,
+        }
+    )
+
+
+def _native_smartbugs_execute(
+    plan: ExecutionResult,
+    *,
+    runner_env: Mapping[str, str] | None = None,
+) -> ExecutionResult:
+    from toolrank import runner as packaged_runner
+    from toolrank.adapter_capabilities import (
+        SPECIAL_ADAPTER_TOOL_IDS,
+        adapter_supports_input,
+    )
+
     target_path = Path(plan.target_path or "")
     results_root = Path(plan.results_root or "")
-    smartbugs_dir = DEFAULT_SMARTBUGS_DIR
+    selected_tools = list(dict.fromkeys(tool for tool in plan.selected_tool_ids if tool))
+    schedule = plan.execution_schedule
+    if schedule.execution_jobs != 0 and schedule.execution_jobs < len(selected_tools):
+        raise ValueError("execution_jobs must provide one worker per selected tool")
+    configured_smartbugs_dir = next(
+        (
+            str((runner_env or {}).get(name) or "").strip()
+            for name in ("LAKES_SMARTBUGS_DIR", "TOOLRANK_SMARTBUGS_DIR")
+            if str((runner_env or {}).get(name) or "").strip()
+        ),
+        "",
+    )
+    smartbugs_dir = (
+        Path(configured_smartbugs_dir).expanduser().resolve()
+        if configured_smartbugs_dir
+        else (
+            DEFAULT_SMARTBUGS_DIR.expanduser().resolve()
+            if DEFAULT_SMARTBUGS_DIR is not None
+            else None
+        )
+    )
     if smartbugs_dir is None:
         return plan.model_copy(
             update={"status": "failed", "stderr_tail": "No SmartBugs directory configured. Set LAKES_SMARTBUGS_DIR."}
         )
+    try:
+        target_inputs = packaged_runner._discover_target_inputs(target_path)
+    except ValueError as exc:
+        return plan.model_copy(
+            update={"status": "failed", "stderr_tail": f"Invalid source project: {exc}"}
+        )
+    if not target_inputs:
+        return plan.model_copy(
+            update={
+                "status": "failed",
+                "stderr_tail": "No supported .sol/.bin/.hex inputs found for native execution.",
+            }
+        )
     results_root.mkdir(parents=True, exist_ok=True)
+    quarantine_root = make_run_quarantine_root(results_root)
+    if not clear_selected_run_artifacts(
+        results_root,
+        selected_tools,
+        quarantine_root=quarantine_root,
+    ):
+        statuses = {
+            tool: ToolExecutionStatus(
+                status="FAIL",
+                return_code=OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                detail="output cleanup failed",
+            )
+            for tool in selected_tools
+        }
+        return plan.model_copy(
+            update={
+                "status": "failed",
+                "execution_mode": "native_smartbugs",
+                "return_code": OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                "stderr_tail": "selected execution artifact cleanup failed",
+                "tool_statuses": statuses,
+                "per_tool_findings": {},
+            }
+        )
+    compilation_manifest_path = results_root / "compilation_manifest.json"
+    if compilation_manifest_path.exists() and not remove_or_quarantine_tree(
+        compilation_manifest_path,
+        quarantine_root,
+    ):
+        statuses = {
+            tool: ToolExecutionStatus(
+                status="FAIL",
+                return_code=OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                detail="compilation manifest cleanup failed",
+            )
+            for tool in selected_tools
+        }
+        return plan.model_copy(
+            update={
+                "status": "failed",
+                "execution_mode": "native_smartbugs",
+                "return_code": OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                "stderr_tail": "compilation manifest cleanup failed",
+                "tool_statuses": statuses,
+                "per_tool_findings": {},
+            }
+        )
+
+    plan, compilation_bundle = _prepare_compilation(plan)
+    write_compilation_manifest(compilation_bundle, results_root)
+    if compilation_bundle.manifest.status == CompilationStatus.FAILED:
+        return _compilation_failed_result(
+            plan,
+            compilation_bundle,
+            execution_mode="native_smartbugs",
+        )
+
+    resolved_timeout = float(schedule.tool_timeout_seconds)
+    vulnerability_mapping = packaged_runner._load_mapping()
+
+    def run_tool(tool_id: str):
+        commands: List[str] = []
+        stdout_chunks: List[str] = []
+        stderr_chunks: List[str] = []
+        outcomes: list[tuple[str, int]] = []
+        runtime_seconds = 0.0
+        shared_source_succeeded = False
+        gptscan_source_dispatched = False
+        for target_input in target_inputs:
+            contract_path = target_input.path
+            input_kind = target_input.kind
+            if tool_id == "gptscan" and input_kind == "sol":
+                if gptscan_source_dispatched:
+                    continue
+                gptscan_source_dispatched = True
+            if not adapter_supports_input(tool_id, input_kind):
+                outcomes.append((contract_path.name, 65))
+                stderr_chunks.append(
+                    f"[{tool_id}:{contract_path.name}] unsupported input kind: {input_kind}"
+                )
+                continue
+            relative = (
+                Path(contract_path.name)
+                if target_path.is_file()
+                else contract_path.relative_to(target_path)
+            )
+            logical_input_id = packaged_runner._logical_input_id(
+                contract_path,
+                target_path,
+            )
+            out_dir = results_root / tool_id / relative
+            out_dir.parent.mkdir(parents=True, exist_ok=True)
+            if not remove_or_quarantine_tree(out_dir, quarantine_root):
+                outcomes.append(
+                    (contract_path.name, OUTPUT_CLEANUP_FAILURE_RETURN_CODE)
+                )
+                stderr_chunks.append(
+                    f"[{tool_id}:{contract_path.name}] output cleanup failed"
+                )
+                break
+            shared_consumption = compilation_bundle.tool_consumption.get(tool_id)
+            uses_shared_source_artifact = (
+                input_kind == "sol"
+                and shared_consumption is not None
+                and shared_consumption.mode == "SHARED_ARTIFACT"
+            )
+            if tool_id in SPECIAL_ADAPTER_TOOL_IDS or uses_shared_source_artifact:
+                commands.append(
+                    f"packaged-adapter {tool_id} {input_kind} {contract_path}"
+                )
+                started = time.monotonic()
+                returncode = packaged_runner._run_adapter_with_deadline(
+                    tool_id,
+                    contract_path,
+                    out_dir,
+                    target_root=target_path,
+                    smartbugs_dir=smartbugs_dir,
+                    timeout=resolved_timeout,
+                    gptscan_timeout=int(resolved_timeout),
+                    openai_api_key=str((runner_env or {}).get("OPENAI_API_KEY") or ""),
+                    openai_api_base=str(
+                        (runner_env or {}).get("OPENAI_API_BASE")
+                        or (runner_env or {}).get("OPENAI_BASE_URL")
+                        or ""
+                    ),
+                    mapping=vulnerability_mapping,
+                    quarantine_root=quarantine_root,
+                    input_kind=input_kind,
+                    compilation_bundle=compilation_bundle,
+                    logical_input_id=logical_input_id,
+                )
+                runtime_seconds += time.monotonic() - started
+                outcomes.append((contract_path.name, returncode))
+                if (
+                    returncode == 0
+                    and uses_shared_source_artifact
+                    and compilation_bundle.route_for(tool_id, logical_input_id)
+                    is not None
+                ):
+                    shared_source_succeeded = True
+                continue
+            with tempfile.TemporaryDirectory(
+                prefix=f"lakes_native_{tool_id}_attempt_"
+            ) as tmp:
+                staged_out = Path(tmp) / "result"
+                try:
+                    with packaged_runner.prepare_smartbugs_invocation(
+                        tool_id,
+                        contract_path,
+                        staged_out,
+                        target_root=target_path,
+                        smartbugs_dir=smartbugs_dir,
+                        timeout=resolved_timeout,
+                        input_kind=input_kind,
+                        compilation_bundle=compilation_bundle,
+                        logical_input_id=logical_input_id,
+                    ) as invocation:
+                        cmd = invocation.command
+                        commands.append(" ".join(cmd))
+                        child_env = packaged_runner._sanitized_adapter_env()
+                        if invocation.env is not None:
+                            for name in (
+                                "PYTHONPATH",
+                                "LAKES_PROJECT_ROOT",
+                                "LAKES_EXECUTION_SOLC_VERSION",
+                            ):
+                                if name in invocation.env:
+                                    child_env[name] = invocation.env[name]
+                        completed = run_process_with_deadline(
+                            cmd,
+                            cwd=invocation.cwd,
+                            timeout_seconds=resolved_timeout,
+                            capture_output=True,
+                            env=child_env,
+                        )
+                except (OSError, RuntimeError) as exc:
+                    outcomes.append((contract_path.name, 1))
+                    stderr_chunks.append(
+                        f"[{tool_id}:{contract_path.name}] input preparation failed: {exc}"
+                    )
+                    continue
+                effective_returncode = 124 if completed.timed_out else completed.returncode
+                if effective_returncode == 0:
+                    report_path = packaged_runner._find_result_json(staged_out)
+                    if report_path is None or not packaged_runner._write_enriched_report(
+                        report_path,
+                        tool_id,
+                        vulnerability_mapping,
+                    ):
+                        effective_returncode = 1
+                    elif not promote_valid_report_tree(
+                        staged_out,
+                        out_dir,
+                        quarantine_root=quarantine_root,
+                    ):
+                        effective_returncode = (
+                            OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                            if out_dir.exists()
+                            else 1
+                        )
+            runtime_seconds += completed.elapsed_seconds
+            outcomes.append((contract_path.name, effective_returncode))
+            if completed.stdout:
+                stdout_chunks.append(
+                    f"[{tool_id}:{contract_path.name}]\n{completed.stdout[-2000:]}"
+                )
+            if completed.stderr:
+                stderr_chunks.append(
+                    f"[{tool_id}:{contract_path.name}]\n{completed.stderr[-2000:]}"
+                )
+
+        status = aggregate_tool_status_history(
+            [
+                ToolExecutionStatus(
+                    status="SUCCESS" if code == 0 else "TIMEOUT" if code == 124 else "FAIL",
+                    runtime_minutes=None,
+                    return_code=code,
+                )
+                for _filename, code in outcomes
+            ]
+        )
+        consumption = compilation_bundle.tool_consumption.get(tool_id)
+        if consumption is not None:
+            consumption = consumption.model_copy(
+                update={"consumed": shared_source_succeeded}
+            )
+        status = status.model_copy(
+            update={
+                "runtime_minutes": runtime_seconds / 60.0,
+                "artifact_consumption": consumption,
+            }
+        )
+        return commands, stdout_chunks, stderr_chunks, outcomes, status
+
+    tool_results = {}
+    workers = len(selected_tools) if schedule.execution_jobs == 0 else schedule.execution_jobs
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        futures = {executor.submit(run_tool, tool): tool for tool in selected_tools}
+        for future in as_completed(futures):
+            tool_results[futures[future]] = future.result()
+
     native_commands: List[str] = []
     combined_stdout: List[str] = []
     combined_stderr: List[str] = []
     failures: List[str] = []
+    statuses: dict[str, ToolExecutionStatus] = {}
+    for tool_id in selected_tools:
+        commands, stdout_chunks, stderr_chunks, outcomes, tool_status = tool_results[tool_id]
+        native_commands.extend(commands)
+        combined_stdout.extend(stdout_chunks)
+        combined_stderr.extend(stderr_chunks)
+        statuses[tool_id] = tool_status
+        for filename, returncode in outcomes:
+            if returncode != 0:
+                failures.append(f"{tool_id}:{filename}:{returncode}")
 
-    for tool_id in ([plan.primary_tool] if plan.primary_tool else []) + [
-        tool for tool in plan.tool_categories.keys() if tool != plan.primary_tool
-    ]:
-        if not tool_id:
-            continue
-        out_dir = results_root / tool_id / target_path.name
-        out_dir.mkdir(parents=True, exist_ok=True)
-        cmd = [
-            "./smartbugs",
-            "-t",
-            tool_id,
-            "-f",
-            str(target_path),
-            "--timeout",
-            "1200",
-            "--continue-on-errors",
-            "--results",
-            str(out_dir),
-            "--sarif",
-            "--json",
-        ]
-        native_commands.append(" ".join(cmd))
-        proc = subprocess.run(cmd, cwd=smartbugs_dir, capture_output=True, text=True)
-        if proc.stdout:
-            combined_stdout.append(f"[{tool_id}]\n{proc.stdout[-2000:]}")
-        if proc.stderr:
-            combined_stderr.append(f"[{tool_id}]\n{proc.stderr[-2000:]}")
-        if proc.returncode != 0:
-            failures.append(f"{tool_id}:{proc.returncode}")
+    (results_root / "tool_run_statuses.json").write_text(
+        json.dumps(
+            {
+                tool: status.model_dump(mode="json")
+                for tool, status in statuses.items()
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     fusion_manifest = {
-        "primary_tool": plan.primary_tool,
-        "category_assignments": plan.tool_categories,
+        "primary_tool": plan.primary_tool_id,
+        "category_owners": plan.category_owners,
         "fusion_summary": plan.fusion_summary,
     }
     (results_root / "fusion_plan.json").write_text(json.dumps(fusion_manifest, indent=2), encoding="utf-8")
 
     status = "executed" if not failures else "failed"
+    cleanup_failed = any(
+        returncode == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+        for _tool_results in tool_results.values()
+        for _filename, returncode in _tool_results[3]
+    )
     stderr_tail = "\n".join(combined_stderr) or None
     if failures:
         extra = f"native_smartbugs_failures={','.join(failures)}"
         stderr_tail = f"{stderr_tail}\n{extra}" if stderr_tail else extra
 
     # Harvest findings from results directory
-    per_tool_findings = _harvest_findings(plan, results_root)
+    per_tool_findings = (
+        {} if cleanup_failed else _harvest_findings(plan, results_root)
+    )
 
     return plan.model_copy(
         update={
@@ -271,23 +706,113 @@ def _native_smartbugs_execute(plan: ExecutionResult) -> ExecutionResult:
             "native_commands": native_commands,
             "stdout_tail": "\n".join(combined_stdout)[-4000:] or None,
             "stderr_tail": stderr_tail[-4000:] if stderr_tail else None,
-            "return_code": 0 if not failures else 1,
+            "return_code": (
+                0
+                if not failures
+                else OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+                if cleanup_failed
+                else 1
+            ),
+            "tool_statuses": statuses,
             "per_tool_findings": per_tool_findings,
+            "compilation": compilation_bundle.manifest,
+            "artifact_consumption": _resolved_artifact_consumption(
+                compilation_bundle.tool_consumption,
+                statuses,
+            ),
+            "compilation_bundle": compilation_bundle,
         }
     )
 
 
-def execute_plan(plan: ExecutionResult) -> ExecutionResult:
+def execute_plan(
+    plan: ExecutionResult,
+    *,
+    runner_env: Mapping[str, str] | None = None,
+) -> ExecutionResult:
     if not plan.runner_command:
         return plan.model_copy(update={"status": "failed", "stderr_tail": "missing runner command"})
 
-    return_code, stdout_tail, stderr_tail = _stream_runner_output(
-        plan.runner_command,
-        cwd=plan.runner_cwd,
-    )
+    results_root = Path(plan.results_root) if plan.results_root else None
+    if results_root is not None:
+        results_root.mkdir(parents=True, exist_ok=True)
+        quarantine_root = make_run_quarantine_root(results_root)
+        if not clear_selected_run_artifacts(
+            results_root,
+            plan.selected_tool_ids,
+            quarantine_root=quarantine_root,
+        ):
+            return plan.model_copy(
+                update={
+                    "status": "failed",
+                    "return_code": OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                    "stderr_tail": "selected execution artifact cleanup failed",
+                    "tool_statuses": {
+                        tool: ToolExecutionStatus(
+                            status="FAIL",
+                            return_code=OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                            detail="output cleanup failed",
+                        )
+                        for tool in plan.selected_tool_ids
+                    },
+                    "per_tool_findings": {},
+                }
+            )
+        compilation_manifest_path = results_root / "compilation_manifest.json"
+        if compilation_manifest_path.exists() and not remove_or_quarantine_tree(
+            compilation_manifest_path,
+            quarantine_root,
+        ):
+            return plan.model_copy(
+                update={
+                    "status": "failed",
+                    "return_code": OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                    "stderr_tail": "compilation manifest cleanup failed",
+                    "tool_statuses": {
+                        tool: ToolExecutionStatus(
+                            status="FAIL",
+                            return_code=OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+                            detail="compilation manifest cleanup failed",
+                        )
+                        for tool in plan.selected_tool_ids
+                    },
+                    "per_tool_findings": {},
+                }
+            )
+
+    plan, compilation_bundle = _prepare_compilation(plan)
+    if results_root is not None:
+        write_compilation_manifest(compilation_bundle, results_root)
+    if compilation_bundle.manifest.status == CompilationStatus.FAILED:
+        return _compilation_failed_result(
+            plan,
+            compilation_bundle,
+            execution_mode="manual_runner",
+        )
+
+    if compilation_bundle.manifest.status == CompilationStatus.READY:
+        with tempfile.TemporaryDirectory(prefix="lakes_compile_bundle_") as tmp:
+            bundle_path = Path(tmp) / "bundle.json"
+            write_compilation_bundle(compilation_bundle, bundle_path)
+            command = [
+                *plan.runner_command,
+                "--compilation-bundle",
+                str(bundle_path),
+            ]
+            return_code, stdout_tail, stderr_tail = _stream_runner_output(
+                command,
+                cwd=plan.runner_cwd,
+                env=runner_env,
+            )
+    else:
+        return_code, stdout_tail, stderr_tail = _stream_runner_output(
+            plan.runner_command,
+            cwd=plan.runner_cwd,
+            env=runner_env,
+        )
     if return_code == 0:
-        results_root = Path(plan.results_root) if plan.results_root else None
         per_tool_findings = _harvest_findings(plan, results_root) if results_root else {}
+        statuses = _load_tool_statuses(plan, results_root, return_code)
         return plan.model_copy(
             update={
                 "status": "executed",
@@ -295,10 +820,35 @@ def execute_plan(plan: ExecutionResult) -> ExecutionResult:
                 "return_code": return_code,
                 "stdout_tail": stdout_tail,
                 "stderr_tail": stderr_tail,
+                "tool_statuses": statuses,
+                "artifact_consumption": _resolved_artifact_consumption(
+                    compilation_bundle.tool_consumption,
+                    statuses,
+                ),
                 "per_tool_findings": per_tool_findings,
             }
         )
 
+    if return_code == OUTPUT_CLEANUP_FAILURE_RETURN_CODE:
+        statuses = _load_tool_statuses(plan, results_root, return_code)
+        return plan.model_copy(
+            update={
+                "status": "failed",
+                "execution_mode": "manual_runner",
+                "return_code": return_code,
+                "stdout_tail": stdout_tail,
+                "stderr_tail": stderr_tail,
+                "tool_statuses": statuses,
+                "artifact_consumption": _resolved_artifact_consumption(
+                    compilation_bundle.tool_consumption,
+                    statuses,
+                ),
+                "per_tool_findings": {},
+            }
+        )
+
+    per_tool_findings = _harvest_findings(plan, results_root) if results_root else {}
+    statuses = _load_tool_statuses(plan, results_root, return_code)
     plan = plan.model_copy(
         update={
             "status": "failed",
@@ -306,10 +856,16 @@ def execute_plan(plan: ExecutionResult) -> ExecutionResult:
             "return_code": return_code,
             "stdout_tail": stdout_tail,
             "stderr_tail": stderr_tail,
+            "tool_statuses": statuses,
+            "artifact_consumption": _resolved_artifact_consumption(
+                compilation_bundle.tool_consumption,
+                statuses,
+            ),
+            "per_tool_findings": per_tool_findings,
         }
     )
     if stderr_tail and "Report not found" in stderr_tail:
-        return _native_smartbugs_execute(plan)
+        return _native_smartbugs_execute(plan, runner_env=runner_env)
     return plan
 
 
@@ -322,10 +878,7 @@ def _harvest_findings(
         return {}
 
     # Derive selected tool IDs from the execution plan
-    selected: Set[str] = set()
-    if plan.primary_tool:
-        selected.add(plan.primary_tool)
-    selected.update(plan.tool_categories.keys())
+    selected: Set[str] = set(plan.selected_tool_ids)
 
     if not selected:
         return {}
@@ -335,3 +888,34 @@ def _harvest_findings(
     except Exception as exc:
         logger.warning("Failed to harvest findings from %s: %s", results_root, exc)
         return {}
+
+
+def _load_tool_statuses(
+    plan: ExecutionResult,
+    results_root: Optional[Path],
+    return_code: int,
+) -> Dict[str, ToolExecutionStatus]:
+    """Load the runner's per-tool status manifest, with a conservative fallback."""
+    payload: dict = {}
+    if results_root is not None:
+        path = results_root / "tool_run_statuses.json"
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                payload = loaded if isinstance(loaded, dict) else {}
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+    fallback = "SUCCESS" if return_code == 0 else "FAIL"
+    statuses: Dict[str, ToolExecutionStatus] = {}
+    for tool in plan.selected_tool_ids:
+        raw = payload.get(tool)
+        if isinstance(raw, str):
+            raw = {"status": raw}
+        if isinstance(raw, dict):
+            try:
+                statuses[tool] = ToolExecutionStatus.model_validate(raw)
+                continue
+            except ValueError:
+                pass
+        statuses[tool] = ToolExecutionStatus(status=fallback, return_code=return_code)
+    return statuses

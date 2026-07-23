@@ -136,6 +136,7 @@ def parse_securify_output(text: str, filename: str) -> Dict[str, Any]:
 
 def run_securify_docker(
     contract_path: str,
+    project_root: Optional[str],
     image: str,
     platform: Optional[str],
     docker_bin: str,
@@ -154,8 +155,13 @@ def run_securify_docker(
     """
 
     contract_path = os.path.abspath(contract_path)
-    contract_dir = os.path.dirname(contract_path)
-    contract_file = os.path.basename(contract_path)
+    contract_dir = os.path.abspath(project_root) if project_root else os.path.dirname(contract_path)
+    try:
+        contract_file = os.path.relpath(contract_path, contract_dir)
+    except ValueError:
+        contract_file = os.path.basename(contract_path)
+    if contract_file == ".." or contract_file.startswith(f"..{os.sep}"):
+        raise ValueError("contract must be inside project root")
 
     cmd: List[str] = []
     if use_sudo:
@@ -192,6 +198,11 @@ def main() -> int:
         help="Output JSON path (default: result.json)",
     )
     ap.add_argument(
+        "--project-root",
+        default=None,
+        help="Project root mounted at /share so Solidity imports remain available",
+    )
+    ap.add_argument(
         "--image",
         default="securify",
         help="Docker image name (default: securify)",
@@ -224,7 +235,13 @@ def main() -> int:
     args = ap.parse_args()
 
     rc, out, err, cmd_str = run_securify_docker(
-        args.contract, args.image, args.platform, args.docker, args.sudo, args.tty
+        args.contract,
+        args.project_root,
+        args.image,
+        args.platform,
+        args.docker,
+        args.sudo,
+        args.tty,
     )
 
     if args.debug_cmd:

@@ -83,6 +83,8 @@ RUN set -eux; \
     }; \
     solcx_install 0.4.26; \
     solcx_install 0.5.17; \
+    solcx_install 0.6.12; \
+    solcx_install 0.7.6; \
     solcx_install 0.8.30
 
 # Phase 2 special tool: sailfish. The thin wrapper uses only the standard library;

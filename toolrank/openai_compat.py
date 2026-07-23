@@ -207,6 +207,7 @@ def create_json_chat_completion(
     model: str,
     system_prompt: str,
     user_prompt: str,
+    temperature: float,
     schema: Optional[Dict[str, Any]] = None,
     raise_on_error: bool = False,
     timeout_sec: float | None = None,
@@ -223,7 +224,7 @@ def create_json_chat_completion(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt + schema_suffix},
         ],
-        "temperature": 0,
+        "temperature": temperature,
     }
 
     def request_payload(

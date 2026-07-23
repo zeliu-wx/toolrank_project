@@ -20,6 +20,8 @@ dependencies = [
 [project.scripts]
 lakes = "toolrank.cli:main"
 lakes-runner = "toolrank.runner:main"
+lakes-profile-builder = "toolrank.profile_builder:main"
+lakes-kb-update = "toolrank.kb_update:main"
 
 [tool.setuptools]
 include-package-data = true

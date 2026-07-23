@@ -1,104 +1,86 @@
-"""Shared assignment-evidence rules for tool category ownership."""
+"""Hard quantitative eligibility rule for Stage 2 complements."""
 
 from __future__ import annotations
 
-import os
-
-from toolrank.recall_ci import newcombe_diff_interval, wilson_half_width, wilson_interval
-
-
-EPSILON_R = 0.15  # CI half-width tolerance (estimate-precision); shared with the stage-1/2 weakness CI
+from toolrank.recall_ci import newcombe_diff_interval
+from toolrank.schemas_v2 import ComplementStrengthResult
 
 
-MIN_N_EFF = 15.0  # pure effective-sample floor; replaces Wilson CI half-width gate
+MIN_N_EFF = 15.0
 
 
-def is_strong_eligible(
-    detected: int | None,
-    effective_total: float | None,
-    rate: float | None,
+def complement_count_eligible(
     *,
-    epsilon_r: float = EPSILON_R,
+    rate: float | None,
+    n_eff: float | None,
 ) -> bool:
-    """Ownership eligibility: rate > 0 and enough effective evidence.
+    """Require positive category recall evidence and ``n_eff >= 15``.
 
-    Uses a pure effective-sample floor (MIN_N_EFF) instead of Wilson CI half-width.
-    Override at runtime via TOOLRANK_MIN_NEFF env var.
+    This rule never certifies, rejects, or replaces the Stage 1 primary tool.
     """
-    _ = detected
-    if rate is None or effective_total is None or effective_total <= 0:
-        return False
-    raw = os.getenv("TOOLRANK_MIN_NEFF", "").strip()
-    if raw.lower() == "wilson":
-        d_eff = rate * effective_total
-        _p, low, high = wilson_interval(d_eff, effective_total)
-        return low > 0.0 and (high - low) / 2.0 <= epsilon_r
-    threshold = float(raw) if raw else MIN_N_EFF
-    return rate > 0 and effective_total >= threshold
+    return rate is not None and rate > 0.0 and n_eff is not None and n_eff >= MIN_N_EFF
 
 
-is_assignment_eligible = is_strong_eligible
-
-
-def is_recall_ci_sufficient(
-    detected: int | None,
-    effective_total: float | None,
-    rate: float | None,
+def complement_strength_against_primary(
     *,
-    epsilon_r: float = 0.15,
-) -> bool:
-    # Stage-2 per-ownership recall gate (paper III.B): precision-of-estimate test,
-    # accept iff the recall 95% CI half-width <= epsilon_r. Mirrors the Stage-1 call
-    # in evidence_packet.py (d_eff = rate*n_eff, n_eff = effective_total).
-    _ = detected
-    return (
-        rate is not None
-        and effective_total is not None
-        and effective_total > 0
-        and wilson_half_width(rate * effective_total, effective_total) <= epsilon_r
+    candidate_rate: float | None,
+    candidate_n_eff: float | None,
+    primary_rate: float | None,
+    primary_n_eff: float | None,
+) -> ComplementStrengthResult:
+    """Decide whether candidate category evidence is stronger than the primary.
+
+    A reliable positive primary baseline requires the candidate-minus-primary
+    Newcombe Recall-gap lower bound to be strictly positive.  Missing,
+    non-positive, or under-evidenced primary statistics do not support a
+    fabricated numeric comparison; a positive count-qualified candidate is
+    evidence-stronger in that case.
+    """
+    candidate_qualified = complement_count_eligible(
+        rate=candidate_rate,
+        n_eff=candidate_n_eff,
     )
-
-
-def is_weak_eligible(
-    detected: int | None,
-    total: int | None,
-    rate: float | None,
-    feasible: bool,
-) -> bool:
-    _ = (detected, total)
-    return feasible and rate is not None and rate > 0.0
-
-
-def count_text(detected: int | None, total: int | None) -> str:
-    if detected is None or total is None:
-        return "unknown"
-    return f"{detected}/{total}"
-
-
-def rate_text(rate: float | None) -> str:
-    if rate is None:
-        return "None"
-    return f"{rate:.4f}"
-
-
-def is_close_local_margin(
-    rate_a: float | None,
-    effective_total_a: float | None,
-    rate_b: float | None,
-    effective_total_b: float | None,
-) -> bool:
-    """Two local candidates are statistically tied when the Newcombe 95% CI for the
-    recall difference straddles 0 (no fixed margin). The CI is computed on the
-    similarity-effective sample (d_eff = rate*effective_total), matching is_strong_eligible;
-    passing the raw detected count against a kernel-density-weighted effective_total would
-    yield p>1 and crash wilson_interval."""
-    if (
-        rate_a is None or effective_total_a is None or effective_total_a <= 0
-        or rate_b is None or effective_total_b is None or effective_total_b <= 0
-    ):
-        return False
-    _diff, low, high = newcombe_diff_interval(
-        rate_a * effective_total_a, effective_total_a,
-        rate_b * effective_total_b, effective_total_b,
+    primary_qualified = complement_count_eligible(
+        rate=primary_rate,
+        n_eff=primary_n_eff,
     )
-    return low <= 0.0 <= high
+    if not candidate_qualified:
+        return ComplementStrengthResult(
+            candidate_count_qualified=False,
+            primary_count_qualified_positive=primary_qualified,
+            evidence_stronger=False,
+            basis="CANDIDATE_COUNT_INELIGIBLE",
+            reason_code="CANDIDATE_COUNT_EVIDENCE_INELIGIBLE",
+        )
+    if not primary_qualified:
+        return ComplementStrengthResult(
+            candidate_count_qualified=True,
+            primary_count_qualified_positive=False,
+            evidence_stronger=True,
+            basis="PRIMARY_BASELINE_UNRELIABLE",
+            reason_code="COUNT_QUALIFIED_CANDIDATE_WITHOUT_RELIABLE_POSITIVE_PRIMARY",
+        )
+
+    assert candidate_rate is not None and candidate_n_eff is not None
+    assert primary_rate is not None and primary_n_eff is not None
+    gap, low, high = newcombe_diff_interval(
+        candidate_rate * candidate_n_eff,
+        candidate_n_eff,
+        primary_rate * primary_n_eff,
+        primary_n_eff,
+    )
+    stronger = low > 0.0
+    return ComplementStrengthResult(
+        candidate_count_qualified=True,
+        primary_count_qualified_positive=True,
+        evidence_stronger=stronger,
+        basis="NEWCOMBE_CANDIDATE_MINUS_PRIMARY",
+        reason_code=(
+            "CANDIDATE_RECALL_CREDIBLY_STRONGER"
+            if stronger
+            else "CANDIDATE_RECALL_NOT_CREDIBLY_STRONGER"
+        ),
+        recall_gap=gap,
+        recall_gap_low=low,
+        recall_gap_high=high,
+    )

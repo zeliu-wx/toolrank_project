@@ -1,0 +1,259 @@
+{
+  "schema_version": "contract_profiles_migration_audit_v1",
+  "generated_at": "2026-07-17T13:33:06Z",
+  "method": "one shared canonical v3 target AST profile with artifact-specific Gower-KDE and current Stage-1 selection",
+  "stage1_settings": {
+    "recall": "Default",
+    "precision": "Default",
+    "tool_slots": 20,
+    "runtime_cap_minutes": 10000.0,
+    "retrieval": false
+  },
+  "replay_provenance": {
+    "canonical_target_profile_reused_for_both_artifacts": true,
+    "legacy_artifact_sha256": "025b5f229c368a712dd0fe6368af510b0e96dbbf88a6cc1ffe5aecc6c1461f50",
+    "legacy_artifact_reference": "pre-migration toolcards/contract_profiles.json Git baseline",
+    "rebuilt_artifact_sha256": "e145f5e923df525c5d1f37e663ae8cbe00b960482d11fe083da58da270e8593a"
+  },
+  "dataset_membership": {
+    "added": [],
+    "removed": [
+      "SmartBugs Curated"
+    ],
+    "retained": [
+      "BNB Benchmark",
+      "Custom Benchmark Dataset",
+      "Not So Smart Contracts",
+      "Smart Contracts Benchmark Suite",
+      "SolidiFI Benchmark",
+      "smartbug2.0empirical",
+      "smartbugsdb"
+    ]
+  },
+  "legacy": {
+    "engine": "source_scanner_v1",
+    "dataset_counts": {
+      "BNB Benchmark": 113,
+      "Custom Benchmark Dataset": 110,
+      "Not So Smart Contracts": 25,
+      "Smart Contracts Benchmark Suite": 214,
+      "SmartBugs Curated": 140,
+      "SolidiFI Benchmark": 350,
+      "smartbug2.0empirical": 2181,
+      "smartbugsdb": 140
+    },
+    "total_samples": 3273,
+    "ranges": {
+      "loc": [2, 2954],
+      "avg_cyc": [0.0, 14.0],
+      "max_cyc": [0, 78],
+      "sum_cyc": [0, 664],
+      "max_nest": [0, 7],
+      "coupling": [0, 29]
+    },
+    "bandwidth": 0.08
+  },
+  "rebuilt": {
+    "engine": "solc_compact_ast_v3",
+    "schema_version": "contract_profiles_v2",
+    "dataset_counts": {
+      "smartbugsdb": 139,
+      "SolidiFI Benchmark": 343,
+      "Not So Smart Contracts": 22,
+      "Smart Contracts Benchmark Suite": 212,
+      "BNB Benchmark": 107,
+      "Custom Benchmark Dataset": 106,
+      "smartbug2.0empirical": 2005
+    },
+    "total_samples": 2934,
+    "ranges": {
+      "loc": [2, 2953],
+      "avg_cyc": [0.0, 13.0],
+      "max_cyc": [0, 78],
+      "sum_cyc": [0, 651],
+      "max_nest": [0, 20],
+      "coupling": [0, 27]
+    },
+    "bandwidth": 0.08,
+    "bandwidth_fit_digest": "db9255d62db17a9d3b90f95412ea25c9b817a38511eb1fa413205a3c3f11169d",
+    "source_digest": "85727b36fa52b927d72e96e4dec0cfe3ca601ad55ea2909df94a033c299f07a0",
+    "profiles_digest": "929a8688608014933480f68a04cae84f2073d5dbbce9828fe81f3200d4805d58"
+  },
+  "full_loo_validation": {
+    "method": "full leave-one-out Gaussian-grid validation",
+    "sample_count": 2934,
+    "selected_bandwidth": 0.08,
+    "builder_bandwidth": 0.08,
+    "matches_builder": true,
+    "reported_log_likelihoods": {
+      "0.05": 1477.63,
+      "0.08": 1574.1,
+      "0.12": 1121.2
+    }
+  },
+  "compiler_fallback_recovery": {
+    "previous_engine": "solc_compact_ast_v2",
+    "previous_artifact_sha256": "36cd1984e0905ba440d825dc1498827f6397666d4f0f79c1e985a667e86d26f8",
+    "previous_succeeded": 2860,
+    "current_succeeded": 2934,
+    "recovered_samples": 74,
+    "broad_constraint_later_bucket": 42,
+    "no_pragma_older_bucket": 32
+  },
+  "skip_diagnostic_summary": {
+    "smartbugsdb": {
+      "DeclarationError": 1
+    },
+    "SolidiFI Benchmark": {
+      "pragma_constraint": 7
+    },
+    "Not So Smart Contracts": {
+      "ParserError": 1,
+      "TypeError": 1,
+      "unresolved_import": 1
+    },
+    "Smart Contracts Benchmark Suite": {
+      "DeclarationError": 1,
+      "SyntaxError": 1
+    },
+    "BNB Benchmark": {
+      "ParserError": 5,
+      "multiple_spdx": 1
+    },
+    "Custom Benchmark Dataset": {
+      "DeclarationError": 2,
+      "ParserError": 1,
+      "SyntaxError": 1
+    },
+    "smartbug2.0empirical": {
+      "DeclarationError": 6,
+      "DocstringParsingError": 1,
+      "ParserError": 163,
+      "SyntaxError": 1,
+      "TypeError": 1,
+      "pragma_constraint": 4
+    }
+  },
+  "representative_targets": [
+    {
+      "path": "smartbugsdb/access_control/FibonacciBalance.sol",
+      "source_sha256": "784009c0758940079bd3a7402a3acdf60e3a9a659012e19b0aa21dbc9c0a35ab",
+      "profile": {
+        "solc": "0.4.x",
+        "loc": 34,
+        "avg_cyc": 1.333,
+        "max_cyc": 3,
+        "sum_cyc": 8,
+        "max_nest": 2,
+        "coupling": 0
+      },
+      "legacy": {
+        "weights": {
+          "BNB Benchmark": 0.0011014864039329527,
+          "Custom Benchmark Dataset": 0.11921036716356952,
+          "Not So Smart Contracts": 0.1585704450597732,
+          "Smart Contracts Benchmark Suite": 0.1481675174465652,
+          "SmartBugs Curated": 0.19334697279537794,
+          "SolidiFI Benchmark": 0.028387873783982113,
+          "smartbug2.0empirical": 0.15786836455142114,
+          "smartbugsdb": 0.19334697279537794
+        },
+        "stage1_status": "PRIMARY_SELECTED",
+        "t_star": "mythril"
+      },
+      "rebuilt": {
+        "weights": {
+          "BNB Benchmark": 0.001602560866286106,
+          "Custom Benchmark Dataset": 0.1480552707076303,
+          "Not So Smart Contracts": 0.23267072748208997,
+          "Smart Contracts Benchmark Suite": 0.1763583876667793,
+          "SolidiFI Benchmark": 0.012827129092556783,
+          "smartbug2.0empirical": 0.18738865818506156,
+          "smartbugsdb": 0.2410972659995959
+        },
+        "stage1_status": "PRIMARY_SELECTED",
+        "t_star": "smartian"
+      }
+    },
+    {
+      "path": "BNB_Scan_sources/0x021eD475D7320C0f04Ef44d06dB6AbC19a4cc270/0x021eD475D7320C0f04Ef44d06dB6AbC19a4cc270.sol",
+      "source_sha256": "3ce43d96f0f8ed75a11bd9dd339c9e8731ab2aa640e24fae4159b0d1aa878009",
+      "profile": {
+        "solc": "0.8.x",
+        "loc": 303,
+        "avg_cyc": 1.951,
+        "max_cyc": 19,
+        "sum_cyc": 80,
+        "max_nest": 2,
+        "coupling": 4
+      },
+      "legacy": {
+        "weights": {
+          "BNB Benchmark": 0.9679565336546885,
+          "Custom Benchmark Dataset": 0.03204346626852523,
+          "Not So Smart Contracts": 1.9045835906469145e-11,
+          "Smart Contracts Benchmark Suite": 7.797430107535925e-12,
+          "SmartBugs Curated": 7.517871136198756e-12,
+          "SolidiFI Benchmark": 1.4585884338005903e-11,
+          "smartbug2.0empirical": 2.03213295993102e-11,
+          "smartbugsdb": 7.517871136198756e-12
+        },
+        "stage1_status": "PRIMARY_SELECTED",
+        "t_star": "mythril"
+      },
+      "rebuilt": {
+        "weights": {
+          "BNB Benchmark": 0.9635651161452469,
+          "Custom Benchmark Dataset": 0.03560151623497285,
+          "Not So Smart Contracts": 6.2013255483563554e-12,
+          "Smart Contracts Benchmark Suite": 0.0008333675308063943,
+          "SolidiFI Benchmark": 5.065843569527566e-11,
+          "smartbug2.0empirical": 2.5267545711708766e-11,
+          "smartbugsdb": 6.846713183217725e-12
+        },
+        "stage1_status": "PRIMARY_SELECTED",
+        "t_star": "mythril"
+      }
+    },
+    {
+      "path": "smartbugs2.0_empirical/sb_results_contracts/0x31c643c416368c988f2b8894684e419e260b174a.sol",
+      "source_sha256": "5207a652830f54ab2ef097be063d8aa474f03abcca80b7fe878b8504a93669f2",
+      "profile": {
+        "solc": "0.4.x",
+        "loc": 1212,
+        "avg_cyc": 1.705,
+        "max_cyc": 14,
+        "sum_cyc": 254,
+        "max_nest": 5,
+        "coupling": 9
+      },
+      "legacy": {
+        "weights": {
+          "BNB Benchmark": 0.002852989681963926,
+          "Custom Benchmark Dataset": 0.11309786949236941,
+          "Not So Smart Contracts": 0.11339587668877324,
+          "Smart Contracts Benchmark Suite": 0.1739569618677996,
+          "SmartBugs Curated": 0.1313261927165909,
+          "SolidiFI Benchmark": 0.04958399464666512,
+          "smartbug2.0empirical": 0.2844599221892469,
+          "smartbugsdb": 0.1313261927165909
+        },
+        "stage1_status": "PRIMARY_SELECTED",
+        "t_star": "vandal"
+      },
+      "rebuilt": {
+        "weights": {
+          "BNB Benchmark": 0.0028061395444351368,
+          "Custom Benchmark Dataset": 0.10531825079390977,
+          "Not So Smart Contracts": 0.14315667699237286,
+          "Smart Contracts Benchmark Suite": 0.25309085533404735,
+          "SolidiFI Benchmark": 0.020241613289692373,
+          "smartbug2.0empirical": 0.3364669389944117,
+          "smartbugsdb": 0.13891952505113084
+        },
+        "stage1_status": "PRIMARY_SELECTED",
+        "t_star": "vandal"
+      }
+    }
+  ]
+}

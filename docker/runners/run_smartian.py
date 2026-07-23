@@ -25,6 +25,20 @@ from typing import Dict, List, Optional, Tuple
 DEFAULT_SMARTIAN_DLL = Path(os.getenv("TOOLRANK_SMARTIAN_DLL", "/work/docker/vendor/smartian/build/Smartian.dll"))
 SOLC_ARTIFACTS_DIR = Path.home() / ".solc-select" / "artifacts"
 SOLCX_DIR = Path.home() / ".solcx"
+# A real shared-artifact run takes about 2.2 seconds beyond its fuzz budget for
+# engine startup/shutdown and result normalization. Round that measured fixed
+# cost up while keeping the scheduler-owned outer deadline unchanged.
+SMARTIAN_REPORT_SHUTDOWN_RESERVE_SECONDS = 3
+
+
+def _smartian_fuzz_timeout_seconds(outer_timeout_seconds: int) -> int:
+    """Leave bounded time for Smartian shutdown and report normalization."""
+    if outer_timeout_seconds <= 0:
+        raise ValueError("outer_timeout_seconds must be positive")
+    return max(
+        1,
+        outer_timeout_seconds - SMARTIAN_REPORT_SHUTDOWN_RESERVE_SECONDS,
+    )
 
 
 def _die(msg: str, code: int = 1) -> None:
@@ -330,6 +344,7 @@ def _normalize_smartian_report(
     selected_solc_bin: str,
     contract_key: str,
     bytecode_kind: str,
+    bundle_id: str = "",
 ) -> Dict[str, object]:
     report: Dict[str, object] = {
         "errors": [],
@@ -342,6 +357,7 @@ def _normalize_smartian_report(
             "contract_key": contract_key,
             "selected_solc": selected_solc_ver,
             "selected_solc_bin": selected_solc_bin,
+            "bundle_id": bundle_id or None,
         },
     }
 
@@ -390,26 +406,45 @@ def _run_one_contract(
     local_solc_bins: Dict[str, str],
     fallback_solc: str,
     bytecode_kind: str,
+    *,
+    shared_abi: Path | None = None,
+    shared_bytecode: Path | None = None,
+    shared_contract_key: str = "",
+    shared_bundle_id: str = "",
+    shared_compiler_version: str | None = None,
+    shared_compiler_binary: str = "",
 ) -> int:
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    ok, compiled, selected_solc_ver, selected_solc_bin, compile_err = _compile_source(
-        sol_file=contract_path,
-        contract_root=contract_root,
-        local_solc_bins=local_solc_bins,
-        fallback_solc=fallback_solc,
-        bytecode_kind=bytecode_kind,
-    )
+    using_shared = shared_abi is not None or shared_bytecode is not None
+    if using_shared:
+        ok = bool(
+            shared_abi is not None
+            and shared_bytecode is not None
+            and shared_abi.is_file()
+            and shared_bytecode.is_file()
+        )
+        compiled: Dict[str, object] = {}
+        selected_solc_ver = shared_compiler_version
+        selected_solc_bin = shared_compiler_binary
+        compile_err = "" if ok else "shared Smartian artifacts are missing"
+    else:
+        ok, compiled, selected_solc_ver, selected_solc_bin, compile_err = _compile_source(
+            sol_file=contract_path,
+            contract_root=contract_root,
+            local_solc_bins=local_solc_bins,
+            fallback_solc=fallback_solc,
+            bytecode_kind=bytecode_kind,
+        )
 
     rc = 1
     contract_key = ""
     if ok:
-        contract_key = str(compiled.get("contract_key") or "")
-        with tempfile.TemporaryDirectory(prefix="smartian_in_") as td:
-            tmp_dir = Path(td)
-            abi_path, bytecode_path = _write_compile_inputs(tmp_dir, compiled, bytecode_kind)
+        contract_key = shared_contract_key or str(compiled.get("contract_key") or "")
+
+        def run_engine(abi_path: Path, bytecode_path: Path) -> int:
             cmd = [
                 dotnet_cmd,
                 str(smartian_dll),
@@ -419,11 +454,22 @@ def _run_one_contract(
                 "-a",
                 str(abi_path),
                 "-t",
-                str(timeout),
+                str(_smartian_fuzz_timeout_seconds(timeout)),
                 "-o",
                 str(out_dir),
             ]
-            rc = _stream_process(cmd, cwd=smartian_dll.parent.parent)
+            return _stream_process(cmd, cwd=smartian_dll.parent.parent)
+
+        if using_shared:
+            assert shared_abi is not None and shared_bytecode is not None
+            rc = run_engine(shared_abi, shared_bytecode)
+        else:
+            with tempfile.TemporaryDirectory(prefix="smartian_in_") as td:
+                tmp_dir = Path(td)
+                abi_path, bytecode_path = _write_compile_inputs(
+                    tmp_dir, compiled, bytecode_kind
+                )
+                rc = run_engine(abi_path, bytecode_path)
     else:
         print(f"[warn] compile failed: {compile_err}", file=sys.stderr)
 
@@ -436,6 +482,7 @@ def _run_one_contract(
         selected_solc_bin=selected_solc_bin,
         contract_key=contract_key,
         bytecode_kind=bytecode_kind,
+        bundle_id=shared_bundle_id,
     )
     findings_count = len(report.get("findings") or [])
     if rc != 0 and findings_count:
@@ -446,8 +493,6 @@ def _run_one_contract(
         f"[smartian] findings={findings_count} "
         f"errors={len(report.get('errors') or [])} out={out_dir / 'result.json'}"
     )
-    if rc != 0 and findings_count:
-        return 0
     return rc
 
 
@@ -455,16 +500,41 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run Smartian on Solidity source and output unified result.json")
     parser.add_argument("contract_or_dir", help=".sol file or directory")
     parser.add_argument("results_root", help="results root path")
+    parser.add_argument(
+        "--project-root",
+        default="",
+        help="Source project root used for Solidity import resolution",
+    )
     parser.add_argument("--smartian_dll", default=str(DEFAULT_SMARTIAN_DLL), help="path to Smartian.dll")
     parser.add_argument("--dotnet", default="dotnet", help="dotnet command path (default: dotnet)")
     parser.add_argument("--solc", default="solc", help="fallback solc binary path/name (default: solc)")
-    parser.add_argument("--timeout", type=int, default=1200, help="fuzz timeout seconds (default: 1200)")
+    parser.add_argument(
+        "--force-solc",
+        action="store_true",
+        help="Use --solc exactly; the caller already selected a compatible version",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=1200,
+        help="outer tool budget in seconds; Smartian reserves bounded report time",
+    )
     parser.add_argument(
         "--bytecode_kind",
         choices=["bin", "runtime"],
         default="bin",
         help="Smartian -p input kind: deployment bin or runtime bin (default: bin)",
     )
+    parser.add_argument("--shared-abi", default="", help="ABI projection from a LAKES bundle")
+    parser.add_argument(
+        "--shared-bytecode",
+        default="",
+        help="Creation-bytecode projection from a LAKES bundle",
+    )
+    parser.add_argument("--shared-contract-key", default="")
+    parser.add_argument("--shared-bundle-id", default="")
+    parser.add_argument("--shared-compiler-version", default="")
+    parser.add_argument("--shared-compiler-binary", default="")
     args = parser.parse_args()
 
     contract_or_dir = Path(args.contract_or_dir).resolve()
@@ -479,7 +549,11 @@ def main() -> int:
         _die("--timeout must be positive", 2)
 
     _ensure_executable(args.dotnet, "--version")
-    _ensure_executable(args.solc, "--version")
+    using_shared = bool(args.shared_abi or args.shared_bytecode)
+    if using_shared and not (args.shared_abi and args.shared_bytecode):
+        _die("--shared-abi and --shared-bytecode must be supplied together", 2)
+    if not using_shared:
+        _ensure_executable(args.solc, "--version")
 
     contracts = _iter_contracts(contract_or_dir)
     if not contracts:
@@ -490,12 +564,22 @@ def main() -> int:
     except OSError as e:
         _die(f"results root not writable: {results_root} ({e})", 1)
 
-    if contract_or_dir.is_file():
+    if args.project_root:
+        contract_root = Path(args.project_root).resolve()
+        try:
+            contract_or_dir.relative_to(contract_root)
+        except ValueError:
+            _die("contract path must be inside --project-root", 2)
+    elif contract_or_dir.is_file():
         contract_root = contract_or_dir.parent
     else:
         contract_root = contract_or_dir
 
-    local_solc_bins = _discover_local_solc_bins()
+    local_solc_bins = (
+        {}
+        if using_shared or args.force_solc
+        else _discover_local_solc_bins()
+    )
     print(f"[start] contracts={len(contracts)}")
     print(f"[start] smartian_dll={smartian_dll}")
     print(f"[start] local_solc_versions={len(local_solc_bins)}")
@@ -518,6 +602,16 @@ def main() -> int:
             local_solc_bins=local_solc_bins,
             fallback_solc=args.solc,
             bytecode_kind=args.bytecode_kind,
+            shared_abi=Path(args.shared_abi).resolve() if args.shared_abi else None,
+            shared_bytecode=(
+                Path(args.shared_bytecode).resolve()
+                if args.shared_bytecode
+                else None
+            ),
+            shared_contract_key=args.shared_contract_key,
+            shared_bundle_id=args.shared_bundle_id,
+            shared_compiler_version=args.shared_compiler_version or None,
+            shared_compiler_binary=args.shared_compiler_binary,
         )
         if rc != 0:
             exit_code = rc

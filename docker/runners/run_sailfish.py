@@ -209,20 +209,7 @@ def _select_local_solc_bin(version: str, bins: Dict[str, Path]) -> Tuple[Optiona
     t = _parse_ver_tuple(target)
     if not t:
         return None, None, f"local_invalid_target:{target}"
-    major, minor, _ = t
-    cands: List[Tuple[Tuple[int, int, int], str, Path]] = []
-    for k, p in bins.items():
-        vt = _parse_ver_tuple(k)
-        if not vt:
-            continue
-        if vt[0] == major and vt[1] == minor:
-            cands.append((vt, k, p))
-    cands.sort()
-    while cands:
-        vt, k, p = cands.pop()
-        if _is_linux_elf(p):
-            return p, k, f"local_fallback:{target}->{k}"
-    return None, None, f"local_not_found:{target}"
+    return None, None, f"local_exact_not_found:{target}"
 
 
 def _iter_path_entries(data: Any) -> List[Tuple[str, Dict[str, Any]]]:
@@ -533,7 +520,7 @@ PY
     log_file.write_text((res.stdout or "") + (res.stderr or ""), encoding="utf-8")
     report = _build_report(sol_filename, solc_ver, rules, source_dir, artifacts_dir, log_file)
 
-    if res.returncode not in (0, 255):
+    if res.returncode != 0:
         report["errors"].append(f"EXIT_CODE_{res.returncode}")
         report["fails"].append("Sailfish process failed")
         detail = _extract_error_summary_from_log(log_file)
@@ -659,6 +646,14 @@ def main() -> int:
         artifacts_root=args.artifacts_root if args.artifacts_root else None,
     )
     print(out)
+    result = _load_json(Path(out) / "result.json")
+    if not isinstance(result, dict):
+        return 2
+    errors = [str(value).upper() for value in (result.get("errors") or [])]
+    if any("TIMEOUT" in value for value in errors):
+        return 124
+    if errors or (result.get("fails") or []):
+        return 2
     return 0
 
 

@@ -1,0 +1,72 @@
+{
+  "schema_version": "contract_profile_manifest_v1",
+  "sample_unit": "solidity_file_with_safe_import_closure",
+  "datasets": [
+    {
+      "name": "smartbugsdb",
+      "path": "smartbugsdb",
+      "include": true
+    },
+    {
+      "name": "SolidiFI Benchmark",
+      "path": "Smart-Contract-Benchmark-Suites-master/dataset/MI",
+      "include": true
+    },
+    {
+      "name": "Not So Smart Contracts",
+      "path": "not-so-smart-contracts-master ",
+      "include": true
+    },
+    {
+      "name": "Smart Contracts Benchmark Suite",
+      "path": "CV",
+      "include": true
+    },
+    {
+      "name": "BNB Benchmark",
+      "path": "BNB_Scan_sources",
+      "include": true
+    },
+    {
+      "name": "Custom Benchmark Dataset",
+      "path": "Smartcontract-benchmark-main 2/small_dataset/dataset",
+      "include": true
+    },
+    {
+      "name": "smartbug2.0empirical",
+      "path": "smartbugs2.0_empirical",
+      "include": true
+    },
+    {
+      "name": "SmartBugs Curated",
+      "path": "smartbugsdb",
+      "include": false,
+      "reason": "duplicate_performance_kb_alias",
+      "duplicate_of": "smartbugsdb"
+    },
+    {
+      "name": "lakasingle_merged_by_lines_0_500_0_4_x",
+      "path": "lakasingle_merged_by_lines/lines_0-500/0.4.x",
+      "include": false,
+      "reason": "no_performance_kb_scene_identity"
+    },
+    {
+      "name": "lakasingle_merged_by_lines_500_plus_0_4_x",
+      "path": "lakasingle_merged_by_lines/lines_500+/0.4.x",
+      "include": false,
+      "reason": "no_performance_kb_scene_identity"
+    },
+    {
+      "name": "lakasingle_merged_by_lines_500_plus_0_8_x_1000_plus",
+      "path": "lakasingle_merged_by_lines/lines_500+/0.8.x_1000+",
+      "include": false,
+      "reason": "no_performance_kb_scene_identity"
+    },
+    {
+      "name": "lakasingle_merged_0_5_x",
+      "path": "lakasingle_merged/0.5.x",
+      "include": false,
+      "reason": "no_performance_kb_scene_identity"
+    }
+  ]
+}

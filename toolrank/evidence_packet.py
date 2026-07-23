@@ -1,68 +1,457 @@
-"""Assemble Step 1 SCREC evidence packets."""
+"""Build the Stage 1 tool table and post-selection Stage 2 evidence context."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+import re
 
-from toolrank.assignment_evidence import is_strong_eligible
+from toolrank.assignment_evidence import MIN_N_EFF, complement_strength_against_primary
+from toolrank.categories import normalize_category
 from toolrank.feasibility import check_feasibility
-from toolrank.recall_ci import wilson_half_width, newcombe_diff_interval, bootstrap_recall_ci, bootstrap_gap_ci
-from toolrank.schemas import ContractFeatures, D1Metric, DASP10_CATEGORIES, PerformanceKnowledgeBase, ToolCard
+from toolrank.numeric_bounds import clamp_normalized_mass
+from toolrank.rcov import build_recall_coverage
+from toolrank.solc_range import version_in_range
+from toolrank.schemas import (
+    ContractFeatures,
+    D1Metric,
+    DASP10_CATEGORIES,
+    PerformanceKnowledgeBase,
+    RuntimeLiteratureSummary,
+    ToolCard,
+)
 from toolrank.schemas_v2 import (
     BudgetProfile,
     CategoryDiagnostics,
-    CertificationVerdict,
     DACERAGFocusItem,
+    FuzzCampaignBudget,
     PerformanceDBEvidenceRow,
+    PrimaryCategoryDecision,
     PrimaryAttention,
-    RecallCoverageEntry,
-    RecallCoverageMatrix,
+    RuntimeCandidateEvidence,
+    RuntimeEvidenceAssessment,
+    RuntimeEstimateProvenance,
     ScenePool,
-    ScorePanel,
-    Step1EvidencePacket,
+    Stage1EvidencePacket,
+    Stage1Status,
+    Stage2EvidenceContext,
     ToolCostEntry,
     ToolOverallMetricsRow,
     ToolTableEntry,
 )
 
 
-_DASP10_CATEGORIES = set(DASP10_CATEGORIES)
-
-
-@dataclass(frozen=True)
-class _CategorySupport:
-    detected: int | None
-    total: int | None
-    rate: float
-    source_rank: int
-    effective_total: float | None = None
+_DASP10 = set(DASP10_CATEGORIES)
 
 
 def _tool_key(name: str) -> str:
-    return "".join(ch for ch in name.lower() if ch.isalnum())
+    return re.sub(r"[^a-z0-9]+", "", name.lower())
 
 
-def _evidence_id(source_id: str, dataset_name: str, tool: str, category: str) -> str:
-    safe_source = "".join(ch if ch.isalnum() else "_" for ch in source_id.lower()).strip("_")
-    safe_dataset = "".join(ch if ch.isalnum() else "_" for ch in dataset_name.lower()).strip("_")
-    safe_tool = "".join(ch if ch.isalnum() else "_" for ch in tool.lower()).strip("_")
-    safe_category = "".join(ch if ch.isalnum() else "_" for ch in category.lower()).strip("_")
-    return f"ev_dataset_{safe_source}_{safe_dataset}_{safe_tool}_{safe_category}"
+_RUNTIME_FIELDS = (
+    "time_sec",
+    "execution_time_avg",
+    "execution_time_avg_average_s",
+)
+MIN_RUNTIME_SUPPORT_MASS = 0.2
+RUNTIME_QUANTILE = 0.9
+_SUPPORTED_RUNTIME_BASES = {"per_contract", "per_kloc", "campaign_cap"}
 
 
-def _metric_payload(card: ToolCard) -> D1Metric | None:
-    if not card.d1_metrics:
+@dataclass(frozen=True)
+class _RuntimeRow:
+    source_id: str
+    dataset_name: str
+    tool: str
+    seconds: float
+    metric_field: str
+    metric: D1Metric
+    solc: tuple[str, ...]
+    loc_profile: dict
+
+
+@dataclass(frozen=True)
+class _RuntimeEstimate:
+    seconds: float | None
+    provenance: RuntimeEstimateProvenance | None
+    evidence: RuntimeEvidenceAssessment
+
+
+def _tool_aliases(cards: list[ToolCard]) -> dict[str, str]:
+    owners: dict[str, set[str]] = {}
+    for card in cards:
+        for raw_alias in (card.tool_id, card.tool_name):
+            alias = _tool_key(raw_alias)
+            if alias:
+                owners.setdefault(alias, set()).add(card.tool_id)
+    return {
+        alias: next(iter(canonical_tools))
+        for alias, canonical_tools in owners.items()
+        if len(canonical_tools) == 1
+    }
+
+
+def _runtime_value(metric: D1Metric) -> tuple[float, str] | None:
+    for field in _RUNTIME_FIELDS:
+        value = getattr(metric, field, None)
+        if value is None:
+            continue
+        seconds = float(value)
+        if seconds > 0.0 and math.isfinite(seconds):
+            return seconds, field
+    return None
+
+
+def _runtime_rows(
+    cards: list[ToolCard],
+    kb: PerformanceKnowledgeBase,
+) -> dict[str, list[_RuntimeRow]]:
+    aliases = _tool_aliases(cards)
+    deduplicated: dict[tuple[str, str], _RuntimeRow] = {}
+    for entry in kb.entries:
+        for observation in entry.tool_performance_data:
+            tool = aliases.get(_tool_key(observation.tool_name))
+            runtime = _runtime_value(observation.metrics)
+            if tool is None or runtime is None:
+                continue
+            seconds, metric_field = runtime
+            row = _RuntimeRow(
+                source_id=entry.source_id,
+                dataset_name=entry.dataset_profile.dataset_name,
+                tool=tool,
+                seconds=seconds,
+                metric_field=metric_field,
+                metric=observation.metrics,
+                solc=tuple(entry.dataset_profile.solc),
+                loc_profile=entry.dataset_profile.loc_profile,
+            )
+            key = (entry.source_id, tool)
+            current = deduplicated.get(key)
+            if current is None or row.seconds > current.seconds:
+                deduplicated[key] = row
+
+    by_tool: dict[str, list[_RuntimeRow]] = {}
+    for row in deduplicated.values():
+        by_tool.setdefault(row.tool, []).append(row)
+    return by_tool
+
+
+def _compiler_bucket(version: str | None) -> str | None:
+    if not version:
         return None
-    if "default" in card.d1_metrics:
-        return card.d1_metrics["default"]
-    return card.d1_metrics[sorted(card.d1_metrics)[0]]
-
-
-def _runtime_minutes(card: ToolCard) -> float | None:
-    metric = _metric_payload(card)
-    if metric is None or metric.resolved_time_sec is None:
+    match = re.search(r"(\d+)\.(\d+)", version)
+    if match is None:
         return None
-    return metric.resolved_time_sec / 60.0
+    return f"{match.group(1)}.{match.group(2)}.x"
+
+
+def _loc_bucket(loc_total: int, criteria: dict) -> str | None:
+    for raw in criteria.get("loc_bins", []):
+        if not isinstance(raw, dict) or not isinstance(raw.get("label"), str):
+            continue
+        minimum = raw.get("min_inclusive")
+        maximum = raw.get("max_exclusive")
+        if not isinstance(minimum, (int, float)):
+            continue
+        if loc_total >= minimum and (maximum is None or loc_total < maximum):
+            return raw["label"]
+    return None
+
+
+def _loc_match(
+    loc_profile: dict,
+    *,
+    target_loc_bucket: str | None,
+    target_version: str | None,
+) -> bool | None:
+    counts = loc_profile.get("loc_bin_counts_by_solc") if isinstance(loc_profile, dict) else None
+    if not isinstance(counts, dict) or target_loc_bucket is None or target_version is None:
+        return None
+    bucket = counts.get(target_loc_bucket)
+    if not isinstance(bucket, dict):
+        return False
+    total = 0.0
+    matched_key = False
+    for version_spec, value in bucket.items():
+        if not isinstance(version_spec, str) or not version_in_range(target_version, version_spec):
+            continue
+        matched_key = True
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            total += float(value)
+    return matched_key and total > 0.0
+
+
+def _candidate_limitations(
+    row: _RuntimeRow,
+    *,
+    runtime_unit: str | None,
+    runtime_basis: str | None,
+    target_version: str | None,
+    compiler_match: bool,
+    loc_match: bool | None,
+    scene_weight: float,
+    target_loc_total: int,
+) -> list[str]:
+    limitations: list[str] = []
+    if runtime_unit is None:
+        limitations.append("RUNTIME_UNIT_MISSING")
+    elif runtime_unit != "seconds":
+        limitations.append("RUNTIME_UNIT_UNSUPPORTED")
+    if runtime_basis is None:
+        limitations.append("RUNTIME_BASIS_MISSING")
+    elif runtime_basis not in _SUPPORTED_RUNTIME_BASES:
+        limitations.append("RUNTIME_BASIS_UNSUPPORTED")
+    elif runtime_basis == "campaign_cap":
+        limitations.append("CAMPAIGN_CAP_NOT_SCHEDULABLE")
+    elif runtime_basis == "per_kloc" and target_loc_total <= 0:
+        limitations.append("PER_KLOC_TARGET_LOC_MISSING")
+    if target_version is None:
+        limitations.append("TARGET_COMPILER_UNKNOWN")
+    elif not compiler_match:
+        limitations.append("COMPILER_BUCKET_MISMATCH")
+    if loc_match is False:
+        limitations.append("TARGET_LOC_BUCKET_ABSENT")
+    if scene_weight <= 0.0:
+        limitations.append("NO_SCENE_SUPPORT")
+    return limitations
+
+
+def _runtime_assessment(
+    *,
+    rows: list[_RuntimeRow],
+    scene_weights: dict[str, float],
+    kb: PerformanceKnowledgeBase,
+    features: ContractFeatures,
+    literature_summaries: list[RuntimeLiteratureSummary],
+) -> _RuntimeEstimate:
+    target_version = features.primary_solidity_version
+    target_compiler_bucket = _compiler_bucket(target_version)
+    target_loc_bucket = _loc_bucket(features.loc_total, kb.criteria)
+    default_unit = kb.criteria.get("runtime_unit")
+    default_basis = kb.criteria.get("runtime_basis_default")
+    candidates: list[RuntimeCandidateEvidence] = []
+
+    for row in sorted(rows, key=lambda item: (item.source_id, item.dataset_name)):
+        runtime_unit = row.metric.runtime_unit or (
+            str(default_unit) if default_unit is not None else None
+        )
+        runtime_basis = row.metric.runtime_basis or (
+            str(default_basis) if default_basis is not None else None
+        )
+        compiler_match = bool(
+            target_version
+            and row.solc
+            and any(
+                version_in_range(target_version, version_spec)
+                for version_spec in row.solc
+            )
+        )
+        loc_match = _loc_match(
+            row.loc_profile,
+            target_loc_bucket=target_loc_bucket,
+            target_version=target_version,
+        )
+        scene_weight = scene_weights.get(row.source_id, 0.0)
+        limitations = _candidate_limitations(
+            row,
+            runtime_unit=runtime_unit,
+            runtime_basis=runtime_basis,
+            target_version=target_version,
+            compiler_match=compiler_match,
+            loc_match=loc_match,
+            scene_weight=scene_weight,
+            target_loc_total=features.loc_total,
+        )
+        if runtime_basis == "per_contract":
+            schedulable_seconds = row.seconds
+        elif runtime_basis == "per_kloc" and features.loc_total > 0:
+            schedulable_seconds = row.seconds * features.loc_total / 1000.0
+        else:
+            schedulable_seconds = None
+        if schedulable_seconds is not None and schedulable_seconds <= 0.0:
+            schedulable_seconds = None
+        candidates.append(
+            RuntimeCandidateEvidence(
+                source_id=row.source_id,
+                dataset_name=row.dataset_name,
+                metric_field=row.metric_field,
+                source_runtime_seconds=row.seconds,
+                schedulable_runtime_seconds=schedulable_seconds,
+                runtime_unit=runtime_unit,
+                runtime_basis=runtime_basis,
+                scene_weight=scene_weight,
+                compiler_match=compiler_match,
+                loc_match=loc_match,
+                sample_count=row.metric.sample_count,
+                success_count=row.metric.success_count,
+                timeout_count=row.metric.timeout_count,
+                compilation_failure_count=row.metric.compilation_failure_count,
+                failure_count=row.metric.failure_count,
+                limitations=limitations,
+            )
+        )
+
+    compatible = [
+        candidate
+        for candidate in candidates
+        if default_unit == "seconds"
+        and default_basis == "per_contract"
+        and candidate.runtime_unit == "seconds"
+        and candidate.runtime_basis in {"per_contract", "per_kloc"}
+        and candidate.schedulable_runtime_seconds is not None
+        and candidate.compiler_match
+        and candidate.loc_match is not False
+    ]
+    exact_loc = [candidate for candidate in compatible if candidate.loc_match is True]
+    exact_support = math.fsum(candidate.scene_weight for candidate in exact_loc)
+    aggregate = exact_loc if exact_support >= MIN_RUNTIME_SUPPORT_MASS else compatible
+    support_mass = clamp_normalized_mass(
+        math.fsum(candidate.scene_weight for candidate in aggregate)
+    )
+    aggregate_ids = {candidate.source_id for candidate in aggregate}
+    candidates = [
+        candidate.model_copy(
+            update={"included_in_quantile": candidate.source_id in aggregate_ids}
+        )
+        for candidate in candidates
+    ]
+
+    if not rows:
+        status = "NO_RUNTIME_ROWS"
+    elif default_unit is None:
+        status = "RUNTIME_UNIT_MISSING"
+    elif default_unit != "seconds":
+        status = "RUNTIME_UNIT_UNSUPPORTED"
+    elif default_basis is None:
+        status = "RUNTIME_BASIS_MISSING"
+    elif default_basis != "per_contract":
+        status = "NO_COMPATIBLE_RUNTIME_EVIDENCE"
+    elif target_compiler_bucket is None:
+        status = "TARGET_COMPILER_UNKNOWN"
+    elif not compatible:
+        units = {candidate.runtime_unit for candidate in candidates}
+        bases = {candidate.runtime_basis for candidate in candidates}
+        if units == {None}:
+            status = "RUNTIME_UNIT_MISSING"
+        elif all(unit != "seconds" for unit in units):
+            status = "RUNTIME_UNIT_UNSUPPORTED"
+        elif bases == {None}:
+            status = "RUNTIME_BASIS_MISSING"
+        else:
+            status = "NO_COMPATIBLE_RUNTIME_EVIDENCE"
+    elif support_mass < MIN_RUNTIME_SUPPORT_MASS:
+        status = "INSUFFICIENT_RUNTIME_SUPPORT"
+    else:
+        status = "QUALIFIED"
+
+    limitations = list(
+        dict.fromkeys(
+            limitation
+            for candidate in candidates
+            for limitation in candidate.limitations
+        )
+    )
+    limitations.append(
+        "DATASET_LEVEL_PROXY_NOT_FINE_GRAINED_RUNTIME_CELL"
+    )
+    if status == "INSUFFICIENT_RUNTIME_SUPPORT":
+        limitations.append("ORIGINAL_SCENE_SUPPORT_BELOW_0_2")
+    evidence = RuntimeEvidenceAssessment(
+        status=status,
+        target_compiler_bucket=target_compiler_bucket,
+        target_loc_bucket=target_loc_bucket,
+        source_runtime_unit=str(default_unit) if default_unit is not None else None,
+        runtime_basis_default=str(default_basis) if default_basis is not None else None,
+        support_mass=support_mass,
+        support_threshold=MIN_RUNTIME_SUPPORT_MASS,
+        quantile=RUNTIME_QUANTILE,
+        candidates=candidates,
+        descriptive_literature_summaries=literature_summaries,
+        limitations=list(dict.fromkeys(limitations)),
+    )
+    if status != "QUALIFIED":
+        return _RuntimeEstimate(seconds=None, provenance=None, evidence=evidence)
+
+    weighted_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.included_in_quantile and candidate.scene_weight > 0.0
+    ]
+    ordered = sorted(
+        weighted_candidates,
+        key=lambda candidate: (
+            candidate.schedulable_runtime_seconds or math.inf,
+            candidate.source_id,
+        ),
+    )
+    threshold = RUNTIME_QUANTILE * support_mass
+    cumulative = 0.0
+    selected = ordered[-1]
+    for candidate in ordered:
+        cumulative += candidate.scene_weight
+        if cumulative >= threshold:
+            selected = candidate
+            break
+    assert selected.schedulable_runtime_seconds is not None
+    assert selected.runtime_basis in {"per_contract", "per_kloc"}
+    provenance = RuntimeEstimateProvenance(
+        method="scene_weighted_p90_compatible_dataset_proxy",
+        selected_source_id=selected.source_id,
+        selected_dataset_name=selected.dataset_name,
+        selected_metric_field=selected.metric_field,
+        selected_source_runtime_seconds=selected.source_runtime_seconds,
+        selected_runtime_seconds=selected.schedulable_runtime_seconds,
+        runtime_basis=selected.runtime_basis,
+        target_compiler_bucket=target_compiler_bucket,
+        target_loc_bucket=target_loc_bucket,
+        support_mass=support_mass,
+        support_threshold=MIN_RUNTIME_SUPPORT_MASS,
+        quantile=RUNTIME_QUANTILE,
+        candidate_source_ids=sorted({candidate.source_id for candidate in candidates}),
+        candidates=candidates,
+        limitations=evidence.limitations,
+    )
+    return _RuntimeEstimate(
+        seconds=selected.schedulable_runtime_seconds,
+        provenance=provenance,
+        evidence=evidence,
+    )
+
+
+def _runtime_estimates(
+    cards: list[ToolCard],
+    kb: PerformanceKnowledgeBase,
+    scene_pool: ScenePool,
+    features: ContractFeatures,
+) -> dict[str, _RuntimeEstimate]:
+    """Resolve fail-closed runtime evidence from compatible scene-linked rows."""
+    weights_by_source: dict[str, list[float]] = {}
+    for neighbor in scene_pool.neighbors:
+        if neighbor.paper_id is None:
+            continue
+        weights_by_source.setdefault(neighbor.paper_id, []).append(neighbor.weight)
+    scene_weights = {
+        source_id: clamp_normalized_mass(math.fsum(weights))
+        for source_id, weights in weights_by_source.items()
+    }
+
+    rows_by_tool = _runtime_rows(cards, kb)
+    aliases = _tool_aliases(cards)
+    literature_by_tool: dict[str, list[RuntimeLiteratureSummary]] = {}
+    for summary in kb.runtime_literature_summaries:
+        tool = aliases.get(_tool_key(summary.tool))
+        if tool is not None:
+            literature_by_tool.setdefault(tool, []).append(summary)
+    return {
+        card.tool_id: _runtime_assessment(
+            rows=rows_by_tool.get(card.tool_id, []),
+            scene_weights=scene_weights,
+            kb=kb,
+            features=features,
+            literature_summaries=literature_by_tool.get(card.tool_id, []),
+        )
+        for card in cards
+    }
 
 
 def _runtime_bucket(runtime_minutes: float | None) -> str:
@@ -84,15 +473,44 @@ def _family(card: ToolCard) -> str:
     return "unknown"
 
 
+def _fuzz_campaign_for_budget(budget: BudgetProfile) -> FuzzCampaignBudget | None:
+    """Resolve a positive, schedule-consistent campaign or fail closed."""
+    schedule = budget.execution_schedule
+    if schedule is None or budget.runtime_cap_minutes <= 0.0:
+        return None
+    if schedule.timeout_source == "budget_default" and not math.isclose(
+        schedule.tool_timeout_seconds,
+        budget.runtime_cap_minutes * 60.0,
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        return None
+    return FuzzCampaignBudget(
+        allocated_runtime_seconds=schedule.tool_timeout_seconds,
+        timeout_source=schedule.timeout_source,
+    )
+
+
 def build_tool_table(
     cards: list[ToolCard],
     features: ContractFeatures,
     budget: BudgetProfile,
+    kb: PerformanceKnowledgeBase,
+    scene_pool: ScenePool,
 ) -> list[ToolTableEntry]:
+    runtime_estimates = _runtime_estimates(cards, kb, scene_pool, features)
     entries: list[ToolTableEntry] = []
     for card in cards:
         feasibility = check_feasibility(card, features, budget)
-        runtime_minutes = _runtime_minutes(card)
+        runtime_estimate = runtime_estimates.get(card.tool_id)
+        historical_runtime_minutes = (
+            runtime_estimate.seconds / 60.0
+            if runtime_estimate is not None and runtime_estimate.seconds is not None
+            else None
+        )
+        is_fuzz = card.d8_mode.value == "fuzz"
+        fuzz_campaign_budget = _fuzz_campaign_for_budget(budget) if is_fuzz else None
+        runtime_minutes = None if is_fuzz else historical_runtime_minutes
         entries.append(
             ToolTableEntry(
                 tool=card.tool_id,
@@ -105,482 +523,95 @@ def build_tool_table(
                     tool_slots=1,
                     expected_runtime_minutes=runtime_minutes,
                     alert_risk=budget.alert_cap,
+                    runtime_provenance=(
+                        runtime_estimate.provenance
+                        if runtime_estimate is not None and not is_fuzz
+                        else None
+                    ),
+                    runtime_evidence=(
+                        runtime_estimate.evidence
+                        if runtime_estimate is not None
+                        else None
+                    ),
+                    fuzz_campaign_budget=fuzz_campaign_budget,
                 ),
             )
         )
     return entries
 
 
-def _pick_eligible_in_scene(
-    scene_support: dict[str, dict[str, _CategorySupport]] | None,
-    source_tool: str,
-    category: str,
-) -> str | None:
-    """Pick the best CI-eligible non-source tool in this scene (no rate/sample thresholds)."""
-    if not scene_support:
-        return None
-    by_tool = scene_support.get(category, {})
-    eligible: list[tuple[str, _CategorySupport]] = []
-    for tool, sup in by_tool.items():
-        if tool == source_tool:
-            continue
-        if not is_strong_eligible(sup.detected, sup.effective_total, sup.rate):
-            continue
-        eligible.append((tool, sup))
-    if not eligible:
-        return None
-    best = max(eligible, key=lambda item: (item[1].rate, item[1].total or 0, item[0]))
-    return best[0]
+def _category_diagnostics(stage1: Stage1EvidencePacket) -> CategoryDiagnostics:
+    profile: dict[str, float] = {}
+    for neighbor in stage1.scene_pool.neighbors:
+        for category, value in neighbor.category_profile.items():
+            profile[category] = profile.get(category, 0.0) + neighbor.weight * value
+    total = sum(profile.values())
+    if total > 0.0:
+        profile = {category: value / total for category, value in profile.items()}
+    return CategoryDiagnostics(scene_category_profile=profile)
 
 
-def _best_hedge_tool(
-    rcov: RecallCoverageMatrix,
-    source_tool: str,
-    category: str,
-    top_scene_support: dict[str, dict[str, _CategorySupport]] | None = None,
-    near_scene_support: dict[str, dict[str, _CategorySupport]] | None = None,
-) -> tuple[str | None, str]:
-    """Pick hedge tool: top-scene → near-scenes → full-aggregate fallback.
+def _evidence_id(source_id: str, dataset_name: str, tool: str, category: str) -> str:
+    def safe(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
-    Three-tier mirror of PA's scene-aware philosophy:
-    - tier-1: best non-primary in scene_pool.neighbors[0]
-    - tier-2: best non-primary aggregated over neighbors[1:] (excluding top-scene)
-    - tier-3: best non-primary in full rcov aggregate (incl. top-scene)
-    All tiers enforce the same eligibility threshold so a weak-everywhere hedge
-    is never picked.
-
-    Returns (hedge_tool, source_tier).
-    source_tier ∈ {"top_scene", "near_scene", "aggregate_fallback", "no_strong_candidate"}.
-    """
-    pick = _pick_eligible_in_scene(top_scene_support, source_tool, category)
-    if pick:
-        return pick, "top_scene"
-
-    pick = _pick_eligible_in_scene(near_scene_support, source_tool, category)
-    if pick:
-        return pick, "near_scene"
-
-    eligible_rows = [
-        row
-        for row in rcov.matrix
-        if row.category == category
-        and row.tool != source_tool
-        and is_strong_eligible(row.detected, row.effective_total, row.R_hat)
-    ]
-    if eligible_rows:
-        best = max(
-            eligible_rows,
-            key=lambda row: (row.R_hat or 0.0, row.total or 0, row.tool),
-        )
-        return best.tool, "aggregate_fallback"
-
-    return None, "no_strong_candidate"
+    return f"ev_dataset_{safe(source_id)}_{safe(dataset_name)}_{safe(tool)}_{safe(category)}"
 
 
-def generate_dace_rag_focus(
-    certification: CertificationVerdict,
-    rcov: RecallCoverageMatrix,
-    primary_attention: PrimaryAttention | None = None,
-    *,
-    top_scene_support: dict[str, dict[str, _CategorySupport]] | None = None,
-    near_scene_support: dict[str, dict[str, _CategorySupport]] | None = None,
-) -> list[DACERAGFocusItem]:
-    source_tools: list[str] = []
-    if certification.status == "certified_primary" and certification.certified_primary:
-        source_tools = [certification.certified_primary]
-    elif certification.status == "candidate_set" and certification.candidate_set:
-        source_tools = list(certification.candidate_set)
-
-    focus: list[DACERAGFocusItem] = []
-    for source_tool in source_tools:
-        categories = list(rcov.weak_categories_by_tool.get(source_tool, []))
-        if primary_attention is not None and source_tool == primary_attention.primary_tool:
-            categories = list(primary_attention.confirmed_weak_categories) + list(
-                primary_attention.low_support_categories
-            )
-        for category in categories:
-            hedge_tool, tier = _best_hedge_tool(
-                rcov,
-                source_tool,
-                category,
-                top_scene_support=top_scene_support,
-                near_scene_support=near_scene_support,
-            )
-            if hedge_tool is None:
-                continue
-            focus.append(
-                DACERAGFocusItem(
-                    tool=hedge_tool,
-                    category=category,
-                    reason=f"hedge_for_{source_tool}_gap_via_{tier}",
-                )
-            )
-    return focus
-
-
-def _resolve_primary_tool(certification: CertificationVerdict, score_panel: ScorePanel) -> str | None:
-    if certification.certified_primary:
-        return certification.certified_primary
-    if certification.candidate_set:
-        return certification.candidate_set[0]
-    for score in sorted(score_panel.nominal_scores, key=lambda item: item.rank):
-        return score.tool
-    return None
-
-
-def _top_scene_source_ids(scene_pool: ScenePool | None) -> list[str]:
-    if scene_pool is None or not scene_pool.neighbors:
-        return []
-    top = scene_pool.neighbors[0]
-    ids: list[str] = []
-    if top.paper_id:
-        ids.append(top.paper_id)
-    ids.extend(top.provenance_refs)
-    return list(dict.fromkeys(ids))
-
-
-def _observation_category_support(observation, category: str) -> tuple[int | None, int | None, float] | None:
-    counts = observation.vulnerability_score_counts or {}
-    count = counts.get(category)
-    if count is not None:
-        if count.total <= 0:
-            return None
-        return count.detected, count.total, count.detected / count.total
-
-    scores = observation.vulnerability_scores or {}
-    score = scores.get(category)
-    if score is None:
-        return None
-    return None, None, float(score)
-
-
-def _top_scene_support_by_category(
-    kb: PerformanceKnowledgeBase | None,
-    scene_pool: ScenePool | None,
-    tool_ids: list[str] | None,
-) -> dict[str, dict[str, _CategorySupport]]:
-    if kb is None or tool_ids is None:
-        return {}
-    top_sources = _top_scene_source_ids(scene_pool)
-    if not top_sources:
-        return {}
-
-    source_rank = {source_id: index for index, source_id in enumerate(top_sources)}
-    requested_by_key = {_tool_key(tool_id): tool_id for tool_id in tool_ids}
-    density_map = {
-        n.paper_id: n.kernel_density
-        for n in (scene_pool.neighbors if scene_pool else [])
-        if n.paper_id
-    }
-    by_category: dict[str, dict[str, _CategorySupport]] = {}
-    for entry in kb.entries:
-        rank = source_rank.get(entry.source_id)
-        if rank is None:
-            continue
-        density = density_map.get(entry.source_id, 1.0)
-        for observation in entry.tool_performance_data:
-            tool = requested_by_key.get(_tool_key(observation.tool_name))
-            if tool is None:
-                continue
-            categories = set(observation.vulnerability_score_counts or {}) | set(
-                observation.vulnerability_scores or {}
-            )
-            for category in categories & _DASP10_CATEGORIES:
-                support = _observation_category_support(observation, category)
-                if support is None:
-                    continue
-                detected, total, rate = support
-                category_support = by_category.setdefault(category, {})
-                existing = category_support.get(tool)
-                if existing is not None and existing.source_rank <= rank:
-                    continue
-                effective_total = density * total if total is not None else None
-                category_support[tool] = _CategorySupport(
-                    detected=detected,
-                    total=total,
-                    rate=rate,
-                    source_rank=rank,
-                    effective_total=effective_total,
-                )
-    return by_category
-
-
-def _near_scene_source_ids(scene_pool: ScenePool | None) -> list[str]:
-    """Source ids from neighbors[1:] (excludes the top scene)."""
-    if scene_pool is None or len(scene_pool.neighbors) <= 1:
-        return []
-    ids: list[str] = []
-    for neighbor in scene_pool.neighbors[1:]:
-        if neighbor.paper_id:
-            ids.append(neighbor.paper_id)
-        ids.extend(neighbor.provenance_refs)
-    return list(dict.fromkeys(ids))
-
-
-def _near_scene_support_by_category(
-    kb: PerformanceKnowledgeBase | None,
-    scene_pool: ScenePool | None,
-    tool_ids: list[str] | None,
-) -> dict[str, dict[str, _CategorySupport]]:
-    """Per-category support aggregated across near scenes (neighbors[1:]).
-
-    Aggregates detected/total/rate across all near sources for each (tool, category)
-    so the hedge picker sees a clean cross-near-scene view that is not diluted by
-    the top scene's potential zero rows.
-    """
-    if kb is None or tool_ids is None:
-        return {}
-    near_sources = _near_scene_source_ids(scene_pool)
-    if not near_sources:
-        return {}
-    near_source_set = set(near_sources)
-    requested_by_key = {_tool_key(tool_id): tool_id for tool_id in tool_ids}
-    density_map = {
-        n.paper_id: n.kernel_density
-        for n in (scene_pool.neighbors[1:] if scene_pool and len(scene_pool.neighbors) > 1 else [])
-        if n.paper_id
-    }
-    count_acc: dict[tuple[str, str], tuple[int, int]] = {}
-    eff_acc: dict[tuple[str, str], float] = {}
-    rate_acc: dict[tuple[str, str], tuple[float, int]] = {}
-    for entry in kb.entries:
-        if entry.source_id not in near_source_set:
-            continue
-        density = density_map.get(entry.source_id, 1.0)
-        for observation in entry.tool_performance_data:
-            tool = requested_by_key.get(_tool_key(observation.tool_name))
-            if tool is None:
-                continue
-            counts = observation.vulnerability_score_counts or {}
-            scores = observation.vulnerability_scores or {}
-            for category in (set(counts) | set(scores)) & _DASP10_CATEGORIES:
-                count = counts.get(category)
-                if count is not None:
-                    if count.total <= 0:
-                        continue
-                    detected, total = count_acc.get((tool, category), (0, 0))
-                    count_acc[(tool, category)] = (
-                        detected + count.detected,
-                        total + count.total,
-                    )
-                    eff_acc[(tool, category)] = (
-                        eff_acc.get((tool, category), 0.0) + density * count.total
-                    )
-                else:
-                    score = scores.get(category)
-                    if score is None:
-                        continue
-                    rate_sum, rate_count = rate_acc.get((tool, category), (0.0, 0))
-                    rate_acc[(tool, category)] = (rate_sum + float(score), rate_count + 1)
-    by_category: dict[str, dict[str, _CategorySupport]] = {}
-    for (tool, category), (detected, total) in count_acc.items():
-        if total <= 0:
-            continue
-        by_category.setdefault(category, {})[tool] = _CategorySupport(
-            detected=detected,
-            total=total,
-            rate=detected / total,
-            source_rank=1,
-            effective_total=eff_acc.get((tool, category)),
-        )
-    for (tool, category), (rate_sum, rate_count) in rate_acc.items():
-        if rate_count <= 0 or (tool, category) in count_acc:
-            continue
-        by_category.setdefault(category, {})[tool] = _CategorySupport(
-            detected=None,
-            total=None,
-            rate=rate_sum / rate_count,
-            source_rank=1,
-            effective_total=None,
-        )
-    return by_category
-
-
-def _top_scene_primary_decision(
-    top_scene_support: dict[str, dict[str, _CategorySupport]],
-    *,
-    primary_tool: str,
-    category: str,
-    epsilon_r: float = 0.15,
-) -> str:
-    by_tool = top_scene_support.get(category)
-    if not by_tool:
-        return "fallback"
-    primary = by_tool.get(primary_tool)
-    if primary is None or primary.effective_total is None or primary.effective_total <= 0:
-        return "fallback"
-    # Judge on the main scene's kernel-density EFFECTIVE sample (n_eff = density*total,
-    # d_eff = rate*n_eff), not the raw single-dataset count, so a low-similarity main
-    # scene self-attenuates -> wider CI -> insufficient (consistent with the n_eff gate).
-    p_neff = primary.effective_total
-    p_deff = primary.rate * p_neff
-    # sufficiency: primary recall Wilson half-width <= epsilon_r
-    if wilson_half_width(p_deff, p_neff) > epsilon_r:
-        return "fallback"
-    # weakness: strongest peer's (peer - primary) recall-gap Newcombe lower bound > 0
-    best_other = max(
-        (s for tool, s in by_tool.items()
-         if tool != primary_tool and s.effective_total is not None and s.effective_total > 0),
-        key=lambda s: s.rate,
-        default=None,
-    )
-    if best_other is None:
-        return "not_weak"
-    o_neff = best_other.effective_total
-    o_deff = best_other.rate * o_neff
-    _diff, low, _high = newcombe_diff_interval(o_deff, o_neff, p_deff, p_neff)
-    return "weak" if low > 0.0 else "not_weak"
-
-
-def _effective_recall_row(entry: "RecallCoverageEntry | None") -> tuple[float, float, float] | None:
-    """rcov aggregate -> single similarity-effective row (1, d_eff, n_eff); None if no counts."""
-    if entry is None or entry.effective_total is None or entry.R_hat is None or entry.effective_total <= 0:
-        return None
-    return (1.0, entry.R_hat * entry.effective_total, entry.effective_total)
-
-
-def _tier2_primary_decision(
-    primary_entry: "RecallCoverageEntry",
-    peers: dict[str, "RecallCoverageEntry"],
-    primary_tool: str,
-    epsilon_r: float,
-) -> tuple[bool, bool]:
-    """Cross-dataset CI decision -> (confirmed_weak, low_support), reusing rcov aggregates."""
-    p_row = _effective_recall_row(primary_entry)
-    if p_row is None:
-        return False, True
-    ci = bootstrap_recall_ci([p_row])
-    if ci is None:
-        return False, True
-    _point, low, high = ci
-    if (high - low) / 2.0 > epsilon_r:  # insufficient evidence
-        return False, True
-    best_peer = None
-    best_r = -1.0
-    for tool, entry in peers.items():
-        if tool == primary_tool or entry.R_hat is None or entry.effective_total is None:
-            continue
-        if entry.R_hat > best_r:
-            best_r, best_peer = entry.R_hat, entry
-    peer_row = _effective_recall_row(best_peer)
-    if peer_row is None:
-        return False, False
-    gap_ci = bootstrap_gap_ci([p_row], [peer_row])
-    if gap_ci is None:
-        return False, False
-    _gap, gap_low, _gap_high = gap_ci
-    return (gap_low > 0.0), False
-
-
-def _partition_primary_categories(
-    rcov: RecallCoverageMatrix,
-    primary_tool: str | None,
-    *,
-    kb: PerformanceKnowledgeBase | None = None,
-    scene_pool: ScenePool | None = None,
-    tool_ids: list[str] | None = None,
-    top_scene_support: dict[str, dict[str, _CategorySupport]] | None = None,
-    epsilon_r: float = 0.15,
-) -> tuple[list[str], list[str], list[str]]:
-    if primary_tool is None:
-        return [], [], []
-    if top_scene_support is None:
-        top_scene_support = _top_scene_support_by_category(kb, scene_pool, tool_ids)
-    peers_by_category: dict[str, dict[str, RecallCoverageEntry]] = {}
-    for entry in rcov.matrix:
-        peers_by_category.setdefault(entry.category, {})[entry.tool] = entry
-    confirmed_weak: set[str] = set()
-    low_support: set[str] = set()
-    reasons: dict[str, str] = {}
-    for entry in rcov.matrix:
-        if entry.tool != primary_tool or entry.category not in _DASP10_CATEGORIES:
-            continue
-        decision = _top_scene_primary_decision(
-            top_scene_support, primary_tool=primary_tool, category=entry.category, epsilon_r=epsilon_r
-        )
-        if decision == "not_weak":
-            continue
-        if decision == "weak":
-            confirmed_weak.add(entry.category)
-            reasons[entry.category] = f"{entry.category}:confirmed_weak:tier1"
-            continue
-        conf, low = _tier2_primary_decision(
-            entry, peers_by_category.get(entry.category, {}), primary_tool, epsilon_r
-        )
-        if low:
-            low_support.add(entry.category)
-            reasons[entry.category] = f"{entry.category}:low_support"
-        elif conf:
-            confirmed_weak.add(entry.category)
-            reasons[entry.category] = f"{entry.category}:confirmed_weak:tier2"
-    reason_codes = [reasons[c] for c in sorted(reasons)]
-    return sorted(confirmed_weak), sorted(low_support), reason_codes
-
-
-def generate_performance_db_view(
+def _performance_view(
     kb: PerformanceKnowledgeBase,
-    primary_attention: PrimaryAttention,
     tool_ids: list[str],
-    matched_source_ids: set[str] | None = None,
-    source_density: dict[str, float] | None = None,
+    required_categories: list[str],
+    scene_densities: dict[str, float],
 ) -> list[PerformanceDBEvidenceRow]:
-    categories = set(primary_attention.confirmed_weak_categories) | set(
-        primary_attention.low_support_categories
-    )
-    if not categories:
-        return []
-
-    requested_by_key = {_tool_key(tool_id): tool_id for tool_id in tool_ids}
+    requested = {_tool_key(tool): tool for tool in tool_ids}
+    required = set(required_categories)
     rows: list[PerformanceDBEvidenceRow] = []
-    seen_ids: set[str] = set()
     for entry in kb.entries:
+        density = scene_densities.get(entry.source_id)
         for observation in entry.tool_performance_data:
-            tool = requested_by_key.get(_tool_key(observation.tool_name))
+            tool = requested.get(_tool_key(observation.tool_name))
             if tool is None:
                 continue
             counts = observation.vulnerability_score_counts or {}
             scores = observation.vulnerability_scores or {}
-            for category in sorted(categories & (set(counts) | set(scores))):
+            for category in sorted(required & (set(counts) | set(scores))):
                 count = counts.get(category)
-                detected = count.detected if count is not None else None
-                total = count.total if count is not None else None
-                if total is not None and total <= 0:
+                if count is not None and count.total > 0:
+                    detected = count.detected
+                    total = count.total
+                    rate = detected / total
+                    n_eff = density * total if density is not None else None
+                else:
+                    detected = None
+                    total = None
+                    rate = scores.get(category)
+                    n_eff = None
+                if rate is None:
                     continue
-                r_hat = detected / total if detected is not None and total else scores.get(category)
-                evidence_id = _evidence_id(
-                    entry.source_id,
-                    entry.dataset_profile.dataset_name,
-                    tool,
-                    category,
-                )
-                if evidence_id in seen_ids:
-                    continue
-                seen_ids.add(evidence_id)
-                eff = None
-                if total is not None:
-                    density = source_density.get(entry.source_id, 1.0) if source_density else 1.0
-                    eff = density * total
                 rows.append(
                     PerformanceDBEvidenceRow(
-                        evidence_id=evidence_id,
+                        evidence_id=_evidence_id(
+                            entry.source_id,
+                            entry.dataset_profile.dataset_name,
+                            tool,
+                            category,
+                        ),
                         source_id=entry.source_id,
                         dataset_name=entry.dataset_profile.dataset_name,
                         tool=tool,
                         category=category,
                         detected=detected,
                         total=total,
-                        R_hat=r_hat,
-                        effective_total=eff,
+                        R_hat=rate,
+                        n_eff=n_eff,
                     )
                 )
-    matched_sources = matched_source_ids or set()
     rows.sort(
         key=lambda row: (
             row.category,
-            0 if row.source_id in matched_sources else 1,
-            0 if row.detected is not None and row.total is not None else 1,
             -(row.R_hat if row.R_hat is not None else -1.0),
-            -(row.total or 0),
+            -(row.n_eff or 0.0),
             row.tool,
             row.source_id,
         )
@@ -588,136 +619,276 @@ def generate_performance_db_view(
     return rows
 
 
-def generate_tool_overall_metrics_view(
+def _overall_metrics_view(
     kb: PerformanceKnowledgeBase,
     tool_ids: list[str],
 ) -> list[ToolOverallMetricsRow]:
-    """Surface per-tool overall (precision/recall/F1) metrics per dataset.
-
-    Per-category precision is unavailable in the public sources we ingest, but
-    each entry typically reports tool-level overall precision/recall/F1.  Expose
-    those so the LLM can weigh FP-burden alongside the per-category recall in
-    ``performance_db_view``.
-    """
-
-    requested_by_key = {_tool_key(tool_id): tool_id for tool_id in tool_ids}
+    requested = {_tool_key(tool): tool for tool in tool_ids}
     rows: list[ToolOverallMetricsRow] = []
     seen: set[tuple[str, str]] = set()
     for entry in kb.entries:
         for observation in entry.tool_performance_data:
-            tool = requested_by_key.get(_tool_key(observation.tool_name))
-            if tool is None:
+            tool = requested.get(_tool_key(observation.tool_name))
+            if tool is None or (tool, entry.source_id) in seen:
                 continue
-            metrics = getattr(observation, "metrics", None)
-            if metrics is None:
+            metric = observation.metrics
+            if metric.precision is None and metric.recall is None and metric.f1 is None:
                 continue
-            precision = getattr(metrics, "precision", None)
-            recall = getattr(metrics, "recall", None)
-            f1 = getattr(metrics, "f1_score", None)
-            if f1 is None:
-                f1 = getattr(metrics, "f1", None)
-            exec_time = getattr(metrics, "execution_time_avg", None)
-            if precision is None and recall is None and f1 is None:
-                continue
-            key = (tool, entry.source_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            evidence_id = (
-                f"ev_overall_{entry.source_id}_{_tool_key(tool)}"
-            )
+            seen.add((tool, entry.source_id))
             rows.append(
                 ToolOverallMetricsRow(
-                    evidence_id=evidence_id,
+                    evidence_id=f"ev_overall_{entry.source_id}_{_tool_key(tool)}",
                     source_id=entry.source_id,
                     dataset_name=entry.dataset_profile.dataset_name,
                     tool=tool,
-                    precision=precision,
-                    recall=recall,
-                    f1=f1,
-                    execution_time_avg=exec_time,
+                    precision=metric.precision,
+                    recall=metric.recall,
+                    f1=metric.f1,
+                    execution_time_avg=metric.resolved_time_sec,
                 )
             )
-    rows.sort(key=lambda r: (r.tool, r.source_id))
+    rows.sort(key=lambda row: (row.tool, row.source_id))
     return rows
 
 
-def build_evidence_packet(
-    features: ContractFeatures,
-    cards: list[ToolCard],
+def decide_primary_categories(
+    context_rows,
+    *,
+    primary_tool: str,
+    required_categories: list[str],
+) -> list[PrimaryCategoryDecision]:
+    """Classify the one legal Stage 2 search gate for each category."""
+    by_key = {(row.tool, row.category): row for row in context_rows}
+    tools = sorted({row.tool for row in context_rows})
+    decisions: list[PrimaryCategoryDecision] = []
+
+    for category in required_categories:
+        primary = by_key.get((primary_tool, category))
+        if primary is None:
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="SEARCH_REQUIRED",
+                    evidence_classification="under_evidenced",
+                    reason_codes=["PRIMARY_CATEGORY_ROW_MISSING"],
+                )
+            )
+            continue
+        if primary.n_eff is None:
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="SEARCH_REQUIRED",
+                    evidence_classification="under_evidenced",
+                    reason_codes=["PRIMARY_N_EFF_MISSING"],
+                    primary_rate=primary.R_hat,
+                    primary_n_eff=primary.n_eff,
+                )
+            )
+            continue
+        if primary.n_eff < MIN_N_EFF:
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="SEARCH_REQUIRED",
+                    evidence_classification="under_evidenced",
+                    reason_codes=["PRIMARY_N_EFF_BELOW_15"],
+                    primary_rate=primary.R_hat,
+                    primary_n_eff=primary.n_eff,
+                )
+            )
+            continue
+        if primary.R_hat is None:
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="SEARCH_REQUIRED",
+                    evidence_classification="under_evidenced",
+                    reason_codes=["PRIMARY_CATEGORY_RATE_MISSING"],
+                    primary_rate=primary.R_hat,
+                    primary_n_eff=primary.n_eff,
+                )
+            )
+            continue
+        if primary.R_hat <= 0.0:
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="SEARCH_REQUIRED",
+                    evidence_classification="confirmed_weak",
+                    reason_codes=["PRIMARY_CATEGORY_RATE_NON_POSITIVE"],
+                    primary_rate=primary.R_hat,
+                    primary_n_eff=primary.n_eff,
+                )
+            )
+            continue
+
+        credible: list[tuple[float, object]] = []
+        for tool in tools:
+            if tool == primary_tool or (tool, category) not in by_key:
+                continue
+            peer = by_key[(tool, category)]
+            strength = complement_strength_against_primary(
+                candidate_rate=peer.R_hat,
+                candidate_n_eff=peer.n_eff,
+                primary_rate=primary.R_hat,
+                primary_n_eff=primary.n_eff,
+            )
+            if strength.evidence_stronger and strength.recall_gap_low is not None:
+                credible.append((strength.recall_gap_low, peer))
+        if credible:
+            low, peer = max(
+                credible,
+                key=lambda item: (
+                    item[0],
+                    item[1].R_hat or 0.0,
+                    item[1].n_eff or 0.0,
+                    item[1].tool,
+                ),
+            )
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="SEARCH_REQUIRED",
+                    evidence_classification="confirmed_weak",
+                    reason_codes=["PEER_RECALL_CREDIBLY_HIGHER"],
+                    primary_rate=primary.R_hat,
+                    primary_n_eff=primary.n_eff,
+                    credible_peer_tool=peer.tool,
+                    credible_peer_gap_low=low,
+                )
+            )
+        else:
+            decisions.append(
+                PrimaryCategoryDecision(
+                    category=category,
+                    status="PRIMARY_SUFFICIENT",
+                    evidence_classification="sufficient",
+                    reason_codes=["PRIMARY_COUNT_EVIDENCE_SUFFICIENT"],
+                    primary_rate=primary.R_hat,
+                    primary_n_eff=primary.n_eff,
+                )
+            )
+    return decisions
+
+
+def _focus_items(
+    rows,
+    *,
+    primary_tool: str,
+    required_categories: list[str],
+    decisions: list[PrimaryCategoryDecision],
+) -> list[DACERAGFocusItem]:
+    focus: list[DACERAGFocusItem] = []
+    by_key = {(row.tool, row.category): row for row in rows}
+    search_required = {
+        decision.category
+        for decision in decisions
+        if decision.status == "SEARCH_REQUIRED"
+    }
+    for category in required_categories:
+        if category not in search_required:
+            continue
+        primary = by_key.get((primary_tool, category))
+        candidates = [
+            row
+            for row in rows
+            if row.category == category
+            and row.tool != primary_tool
+            and complement_strength_against_primary(
+                candidate_rate=row.R_hat,
+                candidate_n_eff=row.n_eff,
+                primary_rate=primary.R_hat if primary else None,
+                primary_n_eff=primary.n_eff if primary else None,
+            ).evidence_stronger
+        ]
+        candidates.sort(key=lambda row: (-(row.R_hat or 0.0), -(row.n_eff or 0.0), row.tool))
+        for row in candidates[:3]:
+            focus.append(
+                DACERAGFocusItem(
+                    tool=row.tool,
+                    category=category,
+                    reason="category_complement_candidate_n_eff_at_least_15",
+                )
+            )
+    return focus
+
+
+def build_stage2_context(
+    stage1: Stage1EvidencePacket,
     kb: PerformanceKnowledgeBase,
-    budget: BudgetProfile,
-    tool_table: list[ToolTableEntry],
-    scene_pool: ScenePool,
-    score_panel: ScorePanel,
-    diagnostics: CategoryDiagnostics,
-    rcov: RecallCoverageMatrix,
-    certification: CertificationVerdict,
-    epsilon_r: float = 0.15,
-    focus_categories: list[str] | None = None,
-) -> Step1EvidencePacket:
-    tool_ids = [card.tool_id for card in cards]
-    primary_tool = _resolve_primary_tool(certification, score_panel)
-    top_scene_support = _top_scene_support_by_category(kb, scene_pool, tool_ids)
-    near_scene_support = _near_scene_support_by_category(kb, scene_pool, tool_ids)
-    confirmed_weak, low_support, reason_codes = _partition_primary_categories(
-        rcov,
-        primary_tool,
-        kb=kb,
-        scene_pool=scene_pool,
-        tool_ids=tool_ids,
-        top_scene_support=top_scene_support,
-        epsilon_r=epsilon_r,
-    )
-    user_mandated = list(
+    required_categories: list[str],
+) -> Stage2EvidenceContext:
+    """Build category evidence only after Stage 1 has fixed ``t^star``."""
+    if stage1.primary_selection.status != Stage1Status.PRIMARY_SELECTED:
+        raise ValueError("Stage 2 requires a selected Stage 1 primary")
+    primary_tool = stage1.primary_selection.primary_tool
+    assert primary_tool is not None
+
+    required = list(
         dict.fromkeys(
-            n
-            for n in (c.strip().lower() for c in (focus_categories or []))
-            if n in _DASP10_CATEGORIES
+            category
+            for category in (normalize_category(value) for value in required_categories)
+            if category in _DASP10
         )
     )
-    primary_attention = PrimaryAttention(
-        primary_tool=primary_tool,
-        confirmed_weak_categories=confirmed_weak,
-        low_support_categories=low_support,
-        user_mandated_categories=user_mandated,
-        reason_codes=reason_codes,
-    )
-    matched_source_ids = {neighbor.paper_id for neighbor in scene_pool.neighbors if neighbor.paper_id}
-    for neighbor in scene_pool.neighbors:
-        matched_source_ids.update(neighbor.provenance_refs)
-    source_density = {
+    tool_ids = [entry.tool for entry in stage1.tool_table]
+    scene_densities = {
         neighbor.paper_id: neighbor.kernel_density
-        for neighbor in scene_pool.neighbors
-        if neighbor.paper_id
+        for neighbor in stage1.scene_pool.neighbors
+        if neighbor.paper_id is not None
     }
-
-    return Step1EvidencePacket(
-        target_contract={
-            "feature_source": "deterministic_parser",
-            "features": features.model_dump(),
-        },
-        tool_table=tool_table,
-        scene_pool=scene_pool,
-        score_panel=score_panel,
-        category_diagnostics=diagnostics,
-        recall_coverage=rcov,
-        performance_db_view=generate_performance_db_view(
+    recall_coverage = build_recall_coverage(
+        kb,
+        tool_ids,
+        scene_densities=scene_densities,
+    )
+    decisions = decide_primary_categories(
+        recall_coverage.matrix,
+        primary_tool=primary_tool,
+        required_categories=required,
+    )
+    confirmed_weak = [
+        decision.category
+        for decision in decisions
+        if decision.evidence_classification == "confirmed_weak"
+    ]
+    under_evidenced = [
+        decision.category
+        for decision in decisions
+        if decision.evidence_classification == "under_evidenced"
+    ]
+    reasons = [
+        f"{decision.category}:{reason}"
+        for decision in decisions
+        for reason in decision.reason_codes
+        if decision.status == "SEARCH_REQUIRED"
+    ]
+    attention = PrimaryAttention(
+        primary_tool=primary_tool,
+        required_categories=required,
+        confirmed_weak_categories=confirmed_weak,
+        under_evidenced_categories=under_evidenced,
+        reason_codes=reasons,
+    )
+    return Stage2EvidenceContext(
+        stage1=stage1,
+        required_categories=required,
+        category_diagnostics=_category_diagnostics(stage1),
+        recall_coverage=recall_coverage,
+        performance_db_view=_performance_view(
             kb,
-            primary_attention,
             tool_ids,
-            matched_source_ids=matched_source_ids,
-            source_density=source_density,
+            required,
+            scene_densities,
         ),
-        tool_overall_metrics=generate_tool_overall_metrics_view(kb, tool_ids),
-        certification=certification,
-        primary_attention=primary_attention,
-        dace_rag_focus=generate_dace_rag_focus(
-            certification,
-            rcov,
-            primary_attention,
-            top_scene_support=top_scene_support,
-            near_scene_support=near_scene_support,
+        tool_overall_metrics=_overall_metrics_view(kb, tool_ids),
+        primary_category_decisions=decisions,
+        primary_attention=attention,
+        dace_rag_focus=_focus_items(
+            recall_coverage.matrix,
+            primary_tool=primary_tool,
+            required_categories=required,
+            decisions=decisions,
         ),
-        provenance_index=[],
     )

@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
+from toolrank.categories import DASP10_CATEGORIES, normalize_category
+
 
 # Paper tool universe (20 tools: 18 paper + sailfish/smartian) used by the external SmartBugs runner.
 TOOL_NAME_MAP: Dict[str, str] = {
@@ -40,27 +42,9 @@ _LEGACY_TOOL_ALIASES: Dict[str, str] = {
     "teether": "teether",
 }
 
-CANONICAL_CATEGORIES = {
-    "ACCESS_CONTROL",
-    "ARITHMETIC",
-    "DENIAL_SERVICE",
-    "REENTRANCY",
-    "UNCHECKED_LOW_CALLS",
-    "BAD_RANDOMNESS",
-    "FRONT_RUNNING",
-    "TIME_MANIPULATION",
-    "SHORT_ADDRESSES",
-    "OTHER",
-}
+CANONICAL_CATEGORIES = {category.upper() for category in DASP10_CATEGORIES}
 
 DEFAULT_VULNERABILITY_MAPPING_CSV = Path(__file__).resolve().parent / "config" / "vulnerabilities_mapping.csv"
-
-_CATEGORY_ALIASES = {
-    "UNCHECKED_LL_CALLS": "UNCHECKED_LOW_CALLS",
-    "UNCHECKED_LOW_LEVEL_CALLS": "UNCHECKED_LOW_CALLS",
-    "DENIAL_OF_SERVICE": "DENIAL_SERVICE",
-}
-
 
 def _die(msg: str, code: int = 1) -> None:
     print(msg, file=sys.stderr)
@@ -107,10 +91,7 @@ def _parse_tools(raw: str) -> List[str]:
 
 
 def _norm_label(label: str) -> str:
-    normalized = label.strip().upper()
-    normalized = re.sub(r"[^A-Z0-9]+", "_", normalized)
-    normalized = re.sub(r"_+", "_", normalized).strip("_")
-    return _CATEGORY_ALIASES.get(normalized, normalized)
+    return normalize_category(label).upper()
 
 
 def _normalize_vuln_name(name: str) -> str:
@@ -141,7 +122,7 @@ def _map_finding_to_canonical_category(
         return ("", False)
     if category == "IGNORE":
         return ("IGNORE", True)
-    return (category.lower(), False)
+    return (normalize_category(category), False)
 
 
 def _enrich_report_with_categories(
@@ -164,6 +145,10 @@ def _enrich_report_with_categories(
             enriched_finding["ignored"] = True
         elif canonical:
             enriched_finding["category"] = canonical
+        elif enriched_finding.get("category"):
+            enriched_finding["category"] = normalize_category(
+                enriched_finding["category"]
+            )
         enriched.append(enriched_finding)
     enriched_report = dict(report)
     enriched_report["findings"] = enriched

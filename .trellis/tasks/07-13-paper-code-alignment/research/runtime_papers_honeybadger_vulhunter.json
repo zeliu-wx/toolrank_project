@@ -1,0 +1,367 @@
+{
+  "research": {
+    "query": "Independent empirical runtime evidence for HoneyBadger and VulHunter, about five papers per tool without padding",
+    "scope": "mixed",
+    "date": "2026-07-21",
+    "runtime_unit": "seconds",
+    "scheduler_contract": "scene_weighted_p90_compatible_dataset_proxy",
+    "support_threshold": 0.2
+  },
+  "tools": {
+    "honeybadger": {
+      "verified_usable_count": 4,
+      "currently_schedulable_count": 0,
+      "observations": [
+        {
+          "observation_id": "HB-1",
+          "title": "The Art of The Scam: Demystifying Honeypots in Ethereum Smart Contracts",
+          "authors": [
+            "Christof Ferreira Torres",
+            "Mathis Steichen",
+            "Radu State"
+          ],
+          "year": 2019,
+          "venue": "28th USENIX Security Symposium",
+          "pages": "1591-1607",
+          "doi": null,
+          "url": "https://www.usenix.org/conference/usenixsecurity19/presentation/ferreira",
+          "full_text_url": "https://www.usenix.org/system/files/sec19-torres.pdf",
+          "tool_version": null,
+          "tool_environment": {
+            "geth_evm": "1.8.16",
+            "solidity": "0.4.25",
+            "z3": "4.7.1"
+          },
+          "dataset": "2,019,434 deployed bytecodes de-duplicated to 151,935 unique bytecodes",
+          "input_profile": "deployed EVM bytecode",
+          "compiler_profile": "Solidity 0.4.25 used for source-to-bytecode needs in the experiment; deployed corpus compiler distribution not reported",
+          "attempted": 151935,
+          "successful": 149603,
+          "timeout_count": 2332,
+          "other_failure_count": null,
+          "statistic": {
+            "kind": "reported_mean_per_contract",
+            "value_seconds": 142.0,
+            "median_seconds": 31.0,
+            "mode": "<1 second"
+          },
+          "timeout_policy": "1 second per Z3 request; 30 minutes global symbolic-execution timeout per contract",
+          "locator": "Section 5.1 Results; PDF p.9 / proceedings p.1599; first paragraph",
+          "normalization_formula": "direct reported mean = 142 seconds per analyzed contract; aggregate total not reported, so no per-success recomputation",
+          "runtime_basis": "per_contract",
+          "runtime_basis_qualification": "timeout-censored descriptive attempt mean",
+          "independent": true,
+          "descriptive_usable": true,
+          "scheduling_eligible": false,
+          "scheduling_reasons": [
+            "CANONICAL_SCENE_IDENTITY_MISSING",
+            "COMPATIBLE_DATASET_PROFILE_MISSING",
+            "ORIGINAL_SCENE_SUPPORT_ZERO"
+          ]
+        },
+        {
+          "observation_id": "HB-2",
+          "title": "Empirical Review of Automated Analysis Tools on 47,587 Ethereum Smart Contracts",
+          "authors": [
+            "Thomas Durieux",
+            "João F. Ferreira",
+            "Rui Abreu",
+            "Pedro Cruz"
+          ],
+          "year": 2020,
+          "venue": "42nd International Conference on Software Engineering (ICSE)",
+          "pages": "530-541",
+          "doi": "10.1145/3377811.3380364",
+          "url": "https://doi.org/10.1145/3377811.3380364",
+          "full_text_url": "https://arxiv.org/pdf/1910.10601",
+          "tool_version": null,
+          "tool_environment": {
+            "framework": "SmartBugs",
+            "hardware": "three Scaleway 32-vCPU/128-GB servers and three Google Cloud 32-vCPU/30-GB servers"
+          },
+          "dataset": "sbwild: 47,518 unique Etherscan Solidity contracts, 9,693,457 LOC",
+          "input_profile": "Solidity source through SmartBugs, including wrapper/compilation/parsing overhead",
+          "compiler_profile": "per-contract Solidity versions present in sbwild; aggregate compiler distribution not reported in Table 8",
+          "attempted": 47518,
+          "successful": null,
+          "timeout_count": 0,
+          "other_failure_count": null,
+          "statistic": {
+            "kind": "reported_mean_per_contract",
+            "value_seconds": 98.0,
+            "reported_total": "23 days, 13:40:00"
+          },
+          "timeout_policy": "30 minutes per analysis; partial results collected; paper says Manticore alone encountered timeouts",
+          "locator": "Section 3.3 RQ3, Table 8; PDF p.8 / proceedings p.537",
+          "normalization_formula": "00:01:38 = 98 seconds per contract; do not divide the parallel/wall-time total by 47,518",
+          "runtime_basis": "per_contract",
+          "runtime_basis_qualification": "end-to-end SmartBugs analysis attempt",
+          "independent": true,
+          "descriptive_usable": true,
+          "scheduling_eligible": false,
+          "scheduling_reasons": [
+            "CANONICAL_SCENE_IDENTITY_MISSING",
+            "COMPATIBLE_PROFILE_SUPPORT_NOT_ESTABLISHED"
+          ]
+        },
+        {
+          "observation_id": "HB-3",
+          "title": "A Static Analysis Approach for Ethereum Smart Contracts",
+          "authors": [
+            "Vaishnavi"
+          ],
+          "year": 2023,
+          "venue": "M.Tech. thesis, Dhirubhai Ambani Institute of Information and Communication Technology",
+          "pages": null,
+          "doi": null,
+          "url": "https://ir.daiict.ac.in/server/api/core/bitstreams/f6210523-fc16-4a08-b3ce-3da8c18a8be5/content",
+          "full_text_url": "https://ir.daiict.ac.in/server/api/core/bitstreams/f6210523-fc16-4a08-b3ce-3da8c18a8be5/content",
+          "tool_version": null,
+          "tool_environment": {
+            "framework": "SmartBugs",
+            "hardware": "single machine; details not reported in the runtime section"
+          },
+          "dataset": "69 SB-curated contracts plus 3,031 randomly selected SB-wild contracts",
+          "input_profile": "Solidity/source or bytecode according to tool adapter; five vulnerability categories",
+          "compiler_profile": null,
+          "attempted": 3100,
+          "successful": null,
+          "timeout_count": null,
+          "other_failure_count": null,
+          "statistic": {
+            "kind": "reported_mean_per_contract",
+            "value_seconds": 72.0,
+            "reported_totals": {
+              "sb_curated": "02:49:03",
+              "sb_wild": "3 days, 20:13:46"
+            }
+          },
+          "timeout_policy": "SB-curated used both 30-minute and run-to-halt regimes; SB-wild used no time budget; Table 5.5 does not identify the owning regime",
+          "locator": "Chapter 5, Section 5.4.2, Table 5.5; PDF p.76 / thesis p.65",
+          "normalization_formula": "00:01:12 = 72 seconds per contract; displayed totals do not replay to this mean",
+          "runtime_basis": "per_contract",
+          "runtime_basis_qualification": "mixed datasets and ambiguous timeout regime",
+          "independent": true,
+          "descriptive_usable": true,
+          "scheduling_eligible": false,
+          "scheduling_reasons": [
+            "CANONICAL_SCENE_IDENTITY_MISSING",
+            "COMPILER_PROFILE_MISSING",
+            "MIXED_TIMEOUT_REGIME",
+            "MEAN_TOTAL_INCONSISTENCY"
+          ]
+        },
+        {
+          "observation_id": "HB-4",
+          "title": "A Comparative Evaluating Auditing Tools for Unverified Smart Contracts on Ethereum Blockchain",
+          "authors": [
+            "Nashaib Akbar",
+            "Muhammad Saleem Vighio"
+          ],
+          "year": 2025,
+          "venue": "International Journal of Innovations in Science & Technology, vol. 7, CSET special issue",
+          "pages": "85-96",
+          "doi": null,
+          "url": "https://journal.50sea.com/index.php/IJIST/article/download/1364/1869/15093",
+          "full_text_url": "https://journal.50sea.com/index.php/IJIST/article/download/1364/1869/15093",
+          "tool_version": null,
+          "tool_environment": {
+            "framework": "SmartBugs"
+          },
+          "dataset": "353 unverified ERC-20 runtime bytecodes plus 310 blacklisted unverified ERC-20 runtime bytecodes",
+          "input_profile": "runtime bytecode",
+          "compiler_profile": null,
+          "attempted": 663,
+          "successful": 663,
+          "timeout_count": null,
+          "other_failure_count": 0,
+          "statistic": {
+            "kind": "reported_mean_per_contract",
+            "value_seconds": 2.28,
+            "table_rounded_value_seconds": 2.0,
+            "reported_total": "00:24:40"
+          },
+          "timeout_policy": null,
+          "locator": "RQ2 and Table 6; PDF p.8 / journal p.92",
+          "normalization_formula": "use exact prose mean 2.28 seconds per contract; 1,480 / 663 = 2.232277... and is retained as a source inconsistency",
+          "runtime_basis": "per_contract",
+          "runtime_basis_qualification": "runtime-bytecode analysis",
+          "independent": true,
+          "descriptive_usable": true,
+          "scheduling_eligible": false,
+          "scheduling_reasons": [
+            "CANONICAL_SCENE_IDENTITY_MISSING",
+            "COMPILER_PROFILE_MISSING",
+            "TIMEOUT_POLICY_MISSING",
+            "MEAN_TOTAL_ROUNDING_INCONSISTENCY"
+          ]
+        }
+      ],
+      "derived_summary": {
+        "summary_id": "honeybadger_cross_paper_mean_v1",
+        "aggregation": "unweighted_arithmetic_mean_of_paper_level_means",
+        "runtime_basis": "per_contract",
+        "runtime_unit": "seconds",
+        "constituent_observation_ids": [
+          "HB-1",
+          "HB-2",
+          "HB-3",
+          "HB-4"
+        ],
+        "n": 4,
+        "formula": "(142 + 98 + 72 + 2.28) / 4",
+        "mean_seconds": 78.57,
+        "pooled_per_success": false,
+        "homogeneous_cohort": false,
+        "scheduling_eligible": false,
+        "limitations": [
+          "HARDWARE_HETEROGENEOUS",
+          "DATASET_HETEROGENEOUS",
+          "INPUT_REPRESENTATION_HETEROGENEOUS",
+          "TOOL_VERSION_MOSTLY_UNREPORTED",
+          "TIMEOUT_POLICY_HETEROGENEOUS",
+          "DERIVED_SUMMARY_NOT_OBSERVED_P90_CANDIDATE"
+        ]
+      },
+      "rejected_candidates": [
+        {
+          "title": "LightCross: A Lightweight Smart Contract Vulnerability Detection Tool",
+          "year": 2025,
+          "doi": "10.3390/computers14090369",
+          "reason": "HoneyBadger appears only as a Figure 3 series; no exact scalar/table cell is stated, so plot reading would invent precision"
+        },
+        {
+          "title": "Hybrid Quantum-Classical Deep Neural Networks Based Smart Contract Vulnerability Detection",
+          "year": 2025,
+          "doi": "10.3390/app15074037",
+          "reason": "Table 1 gives 46 seconds and total 00:53:11 while prose claims a 47,518-contract dataset; denominator is irreconcilable and no independent HoneyBadger rerun is documented"
+        },
+        {
+          "title": "Ensemble multi-label machine learning solidity smart contract vulnerability detection model",
+          "year": 2025,
+          "doi": "10.1007/s10586-025-05725-y",
+          "reason": "98,000 ms is Durieux et al.'s 98-second baseline converted to milliseconds, not an independent timing experiment"
+        },
+        {
+          "title": "SmartBugs 2.0: An Execution Framework for Weakness Detection in Ethereum Smart Contracts",
+          "year": 2023,
+          "doi": null,
+          "reason": "No verified exact per-contract HoneyBadger completion-time cell"
+        },
+        {
+          "title": "Evaluation of Smart Contract Vulnerability Analysis Tools: A Domain-Specific Perspective",
+          "year": 2023,
+          "doi": "10.3390/info14100533",
+          "reason": "Individual HoneyBadger cells exist for a 20-contract subset, but complete cell extraction and timeout/success denominator were not completed; no partial mean admitted"
+        },
+        {
+          "title": "An empirical analysis of vulnerability detection tools for Solidity smart contracts",
+          "year": 2026,
+          "doi": null,
+          "reason": "Paper explicitly excluded HoneyBadger"
+        }
+      ]
+    },
+    "vulhunter": {
+      "verified_usable_count": 1,
+      "currently_schedulable_count": 0,
+      "observations": [
+        {
+          "observation_id": "VH-1",
+          "title": "VulHunter: Hunting Vulnerable Smart Contracts at EVM Bytecode-Level via Multiple Instance Learning",
+          "authors": [
+            "Zhaoxuan Li",
+            "Siqi Lu",
+            "Rui Zhang",
+            "Ziming Zhao",
+            "Rujin Liang",
+            "Rui Xue",
+            "Wenhao Li",
+            "Fan Zhang",
+            "Sheng Gao"
+          ],
+          "year": 2023,
+          "venue": "IEEE Transactions on Software Engineering, vol. 49",
+          "pages": "3793-3810",
+          "doi": "10.1109/TSE.2023.3317209",
+          "url": "https://doi.org/10.1109/TSE.2023.3317209",
+          "full_text_url": "https://www.researchgate.net/publication/374128313_VulHunter_Hunting_Vulnerable_Smart_Contracts_at_EVM_bytecode-level_via_Multiple_Instance_Learning",
+          "tool_version": null,
+          "tool_environment": null,
+          "dataset": "RQ3 overhead sample of approximately 100 Ethereum contracts; source note mentions an approximately 121 KB size profile whose exact semantics need table-level re-verification",
+          "input_profile": "EVM bytecode/runtime execution sequences",
+          "compiler_profile": null,
+          "attempted": null,
+          "attempted_note": "approximately 100; exact integer not re-verified from the RQ3 table",
+          "successful": null,
+          "successful_note": "abstract reports 0% analysis failure",
+          "timeout_count": null,
+          "other_failure_count": 0,
+          "statistic": {
+            "kind": "reported_mean_per_contract",
+            "value_seconds": 4.4,
+            "analysis_failure_rate": 0.0
+          },
+          "timeout_policy": null,
+          "locator": "Abstract, PDF p.1; sentence reporting 4.4 seconds per contract and 0% analysis failed rate; packaged source attributes the measurement to RQ3",
+          "normalization_formula": "direct reported mean = 4.4 seconds per contract; aggregate total not reported",
+          "runtime_basis": "per_contract",
+          "runtime_basis_qualification": "RQ3 descriptive efficiency result",
+          "independent": true,
+          "descriptive_usable": true,
+          "scheduling_eligible": false,
+          "scheduling_reasons": [
+            "CANONICAL_SCENE_IDENTITY_MISSING",
+            "COMPILER_PROFILE_MISSING",
+            "ORIGINAL_SCENE_SUPPORT_ZERO",
+            "TIMEOUT_POLICY_MISSING"
+          ]
+        }
+      ],
+      "derived_summary": {
+        "summary_id": "vulhunter_single_observation_identity_v1",
+        "aggregation": "identity_mean",
+        "runtime_basis": "per_contract",
+        "runtime_unit": "seconds",
+        "constituent_observation_ids": [
+          "VH-1"
+        ],
+        "n": 1,
+        "formula": "4.4 / 1",
+        "mean_seconds": 4.4,
+        "cross_paper_mean": false,
+        "scheduling_eligible": false,
+        "limitations": [
+          "SINGLE_SOURCE_ONLY",
+          "RQ3_TABLE_LOCATOR_NOT_REVERIFIED",
+          "COMPILER_PROFILE_MISSING",
+          "DERIVED_SUMMARY_NOT_OBSERVED_P90_CANDIDATE"
+        ]
+      },
+      "rejected_candidates": [
+        {
+          "title": "Machine learning for vulnerability detection in smart contracts: a comparison of approaches",
+          "authors": [
+            "Stephan Klein"
+          ],
+          "year": 2025,
+          "venue": "TU Wien thesis",
+          "url": "https://repositum.tuwien.at/handle/20.500.12708/220334?mode=full",
+          "reason": "Repository abstract confirms a VulHunter/MANDO-HGT comparison on a 120-contract holdout, but no exact per-contract completion-time table/cell was verified"
+        },
+        {
+          "title": "SmartBugs and SmartBugs 2.0 evaluation papers",
+          "year": null,
+          "reason": "No verified exact VulHunter completion-time cell; framework overhead or another ML tool's time cannot be transferred"
+        }
+      ]
+    }
+  },
+  "global_caveats": [
+    "DESCRIPTIVE_USABLE_DOES_NOT_MEAN_SCHEDULING_ELIGIBLE",
+    "NO_ACCEPTED_SOURCE_HAS_CURRENT_CANONICAL_SCENE_COMPILER_SUPPORT",
+    "CROSS_PAPER_MEANS_MUST_NOT_POPULATE_LEGACY_OBSERVED_RUNTIME_FIELDS",
+    "PER_SUCCESS_NORMALIZATION_IS_NOT_RECONSTRUCTIBLE_WHERE_SUCCESS_DENOMINATOR_OR_TOTAL_CPU_TIME_IS_MISSING",
+    "NO_SECRET_VALUES_INCLUDED"
+  ]
+}

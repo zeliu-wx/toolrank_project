@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
+from toolrank.kb_update_models import canonical_json_bytes
 from toolrank.schemas_v2 import Passage, PassageStore
 from toolrank.vector_store import VectorIndex, resolve_embedding_config
 
@@ -48,6 +50,29 @@ def passage_to_embedding_text(passage: Passage) -> str:
 
 def passage_store_embedding_texts(store: PassageStore) -> list[str]:
     return [passage_to_embedding_text(passage) for passage in store.passages]
+
+
+def passage_store_sha256(store: PassageStore) -> str:
+    return hashlib.sha256(
+        canonical_json_bytes(store.model_dump(mode="json"))
+    ).hexdigest()
+
+
+def validate_passage_index_binding(
+    store: PassageStore,
+    index: VectorIndex,
+    *,
+    expected_store_sha256: str | None = None,
+) -> None:
+    expected_ids = [passage.passage_id for passage in store.passages]
+    metadata_ids = index.metadata.get("passage_ids")
+    if metadata_ids is not None and metadata_ids != expected_ids:
+        raise ValueError("Vector index passage IDs do not match passage store order")
+    if expected_store_sha256 is not None:
+        if index.metadata.get("passage_store_sha256") != expected_store_sha256:
+            raise ValueError("Vector index passage-store digest mismatch")
+    if len(index) != len(store.passages):
+        raise ValueError("Vector index size does not match passage store size")
 
 
 def _norm_key(value: str) -> str:
@@ -160,6 +185,7 @@ def save_passage_vector_index(
             "base_url": config.base_url,
             "model": config.model,
             "passage_ids": [passage.passage_id for passage in store.passages],
+            "passage_store_sha256": passage_store_sha256(store),
             "text_fields": [
                 "claim_text",
                 "owner_tool",
@@ -190,8 +216,7 @@ class PassageRetriever:
         self._passages = store.passages
         self._graph = PassageGraphIndex(self._passages)
         self._index = index or build_passage_vector_index(store, **embedding_kwargs)
-        if len(self._index) != len(self._passages):
-            raise ValueError("Vector index size does not match passage store size")
+        validate_passage_index_binding(store, self._index)
 
     def search_text(
         self,

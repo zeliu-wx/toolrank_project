@@ -1,18 +1,14 @@
-"""Confidence-interval helpers for Stage 1 scene-conditioned recall gates.
+"""Confidence-interval helpers for Stage 2 category diagnostics.
 
-Sufficiency = recall 95% CI half-width <= epsilon_r; weakness = (peer - primary)
-recall-gap 95% CI lower bound > 0. Single-dataset proportions use Wilson /
-Newcombe (closed-form); KDE-weighted cross-dataset aggregates use a
-Jeffreys-posterior (Beta) resampling. All randomized CIs are seeded for reproducibility.
+The active primary diagnostic uses a Newcombe interval for the peer-primary
+recall gap. Weighted bootstrap helpers remain available for diagnostic analysis;
+none of these functions selects or certifies the Stage 1 primary.
 """
 from __future__ import annotations
 
 import math
 
 import numpy as np
-
-from toolrank.schemas import PerformanceKnowledgeBase
-from toolrank.schemas_v2 import ScenePool
 
 Z_95 = 1.96  # 95% two-sided normal quantile (CONSORT convention)
 N_BOOTSTRAP = 2000  # percentile-bootstrap resamples; numerical-precision knob
@@ -104,21 +100,3 @@ def bootstrap_gap_ci(
     low = float(np.percentile(gap_samples, (1 - conf) / 2 * 100))
     high = float(np.percentile(gap_samples, (1 + conf) / 2 * 100))
     return gap, low, high
-
-
-def filter_scene_pool_to_count_bearing(
-    scene_pool: ScenePool, kb: PerformanceKnowledgeBase
-) -> ScenePool:
-    """Drop neighbors whose dataset has no count-bearing observations; renormalize weight."""
-    count_bearing = {
-        entry.source_id
-        for entry in kb.entries
-        if any((obs.vulnerability_score_counts or {}) for obs in entry.tool_performance_data)
-    }
-    kept = [n for n in scene_pool.neighbors if n.paper_id in count_bearing]
-    total_w = sum(n.weight for n in kept)
-    neighbors = [
-        n.model_copy(update={"weight": (n.weight / total_w if total_w > 0 else 0.0)})
-        for n in kept
-    ]
-    return scene_pool.model_copy(update={"neighbors": neighbors})

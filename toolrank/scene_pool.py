@@ -3,18 +3,20 @@
 For a target contract, scene_kde weights every benchmark dataset by how densely
 its contracts surround the target (design 4.2). Each weighted dataset is mapped
 back to its performance-KB entry by dataset_name, so neighbors keep the same
-shape (paper_id = perf-KB source_id) that certification, CEGO, and the evidence
-packet already consume. Datasets without a per-contract profile simply do not
+shape (paper_id = perf-KB source_id) that Stage 1 scoring and Stage 2 evidence
+consume. Datasets without a per-contract profile simply do not
 appear in the pool.
 """
 from __future__ import annotations
 
+import math
 import os
-import re
 from functools import lru_cache
 from pathlib import Path
 
 from toolrank import scene_kde
+from toolrank.categories import normalize_category
+from toolrank.numeric_bounds import clamp_normalized_mass
 from toolrank.schemas import ContractFeatures, PerformanceEntry, PerformanceKnowledgeBase
 from toolrank.schemas_v2 import SceneNeighbor, ScenePool
 
@@ -27,15 +29,10 @@ def _load_profile_kb(path: str) -> scene_kde.ProfileKB:
 
 
 def _target_phi(features: ContractFeatures) -> dict | None:
-    if features.loc_total <= 0:
+    if not features.gower_ast_available or features.loc_total <= 0:
         return None
-    bucket = "unknown"
-    if features.primary_solidity_version:
-        m = re.match(r"(\d+)\.(\d+)", features.primary_solidity_version)
-        if m:
-            bucket = f"{m.group(1)}.{m.group(2)}.x"
     return {
-        "solc": bucket,
+        "solc": features.gower_solc_bucket,
         "loc": features.loc_total,
         "avg_cyc": features.cyclomatic_avg,
         "max_cyc": features.cyclomatic_max,
@@ -75,14 +72,18 @@ def build_scene_pool(
         return ScenePool(neighbors=[])
 
     equal_w = os.environ.get("TOOLRANK_EQUAL_WEIGHTS", "").strip().lower() in {"1", "true", "yes", "on"}
-    weight_total = sum(info["weight"] for _name, info in selected) or 1.0
+    weight_total = math.fsum(info["weight"] for _name, info in selected) or 1.0
     uniform = 1.0 / len(selected) if selected else 1.0
     neighbors = [
         SceneNeighbor(
             slice_id=f"{entry_by_name[name].source_id}_{name}",
             benchmark_family=_benchmark_family(name),
             paper_id=entry_by_name[name].source_id,
-            weight=uniform if equal_w else info["weight"] / weight_total,
+            weight=(
+                uniform
+                if equal_w
+                else clamp_normalized_mass(info["weight"] / weight_total)
+            ),
             kernel_density=uniform if equal_w else info["density"],
             distance=info["distance"],
             category_profile=_category_profile(entry_by_name[name]),
@@ -106,6 +107,14 @@ def _category_profile(entry: PerformanceEntry) -> dict[str, float]:
     if not categories:
         return {}
 
-    unique_categories = list(dict.fromkeys(categories))
+    unique_categories = list(
+        dict.fromkeys(
+            category
+            for raw_category in categories
+            if (category := normalize_category(raw_category))
+        )
+    )
+    if not unique_categories:
+        return {}
     weight = 1.0 / len(unique_categories)
     return {category: weight for category in unique_categories}

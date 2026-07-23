@@ -2,6 +2,14 @@
 
 LAKES recommends and optionally runs smart-contract vulnerability analyzers for Solidity contracts.
 
+Its scheduling flow is:
+
+1. Stage 1 computes Gower-KDE benchmark weights, ranks feasible tools by overall recall/precision, applies the benchmark-support threshold `tau = 0.2`, and directly fixes the highest-ranked tool as the primary `t*`.
+2. Stage 2 keeps `t*` as the owner of every requested category. It opens complement search only when the primary category evidence is missing, non-positive, below `n_eff = 15`, or credibly weaker than a count-qualified peer. A complement needs positive recall-side evidence and `n_eff >= 15`.
+3. Stage 3 runs the selected tools concurrently for each contract, processes directory contracts sequentially, and fuses findings with their tool provenance. Findings sharing a non-empty `(category, location)` are grouped, while conflicting severity, confidence, or explanation values are retained and marked.
+
+There is no primary-tool certification or candidate-primary state. Low category support never replaces `t*`. If no complement qualifies, or decision repair is exhausted, the checked fallback is the primary-only plan.
+
 ## Install
 
 ```bash
@@ -9,6 +17,35 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install .
 ```
+
+The install also provides `lakes-profile-builder`. It rebuilds the shipped
+Gower/KDE benchmark profiles from the tracked manifest and a caller-owned
+corpus root:
+
+```bash
+python -m solcx.install 0.4.26
+python -m solcx.install 0.5.17
+python -m solcx.install 0.6.12
+python -m solcx.install 0.7.6
+python -m solcx.install 0.8.30
+lakes-profile-builder \
+  --corpus-root /path/to/corpora \
+  --manifest toolcards/contract_profile_manifest.json \
+  --output toolcards/contract_profiles.json
+```
+
+The builder attempts each safe Solidity file with its in-corpus import
+closure, records exact compiler and skip provenance, fits ranges and bandwidth
+from the emitted AST samples, and replaces the output atomically. Runtime scene
+loading accepts only the matching versioned AST artifact; it never refits a
+legacy artifact.
+
+For pragma-constrained sources, profiling tries only intersecting canonical
+compiler buckets in `0.4.x` through `0.8.x` order. A source without a pragma
+tries `0.8.x` through `0.4.x`. The first compiler that emits the complete AST
+owns the recorded Gower bucket and profiling compiler. Rewrites occur only in
+the private profiling copy; original constraints, feasibility, and execution
+compiler selection remain unchanged.
 
 Configure your OpenAI-compatible chat endpoint:
 
@@ -18,11 +55,57 @@ export LAKES_OPENAI_MODEL="your-model"
 export OPENAI_API_KEY="your-api-key"
 ```
 
+## Dynamic knowledge-base updates
+
+The update command requires a local MinerU installation and its models, an
+OpenAI-compatible chat endpoint, and an embedding endpoint. Pass the ToolCard
+and baseline directory explicitly because installed wheels do not bundle the
+repository's root-level `toolcards/` directory.
+
+```bash
+lakes-kb-update ingest paper.pdf \
+  --kb-root /path/to/writable-kb \
+  --toolcards-dir /path/to/toolcards \
+  --dry-run
+```
+
+`--dry-run` performs conversion, extraction, mapping, index construction, and
+generation validation against the current generation when one exists, but it
+does not create or replace `kb_current.json`. Remove it only when the proposed
+generation is ready to publish.
+
+MinerU is invoked locally as `mineru -p PDF -o DIR`; use `--mineru-command` if
+it is not on `PATH`. Chat extraction uses `LAKES_OPENAI_BASE_URL`,
+`LAKES_OPENAI_MODEL`, and `OPENAI_API_KEY`. The default SiliconFlow embedding
+adapter reads `embeddingAPI`, `SILICONFLOW_API_KEY`, or `QWEN_API_KEY`, plus
+optional `SILICONFLOW_BASE_URL` and `SILICONFLOW_EMBEDDING_MODEL`. For another
+OpenAI-compatible embedding endpoint, pass `--embedding-base-url` and
+`--embedding-model`; its credential is read from `OPENAI_API_KEY`. API keys are
+not accepted as command-line options.
+
 ## Run
 
 ```bash
 lakes recommend path/to/Contract.sol --emit summary
 ```
+
+Evaluate complements for selected DASP categories:
+
+```bash
+lakes recommend path/to/Contract.sol \
+  --focus-categories reentrancy,access_control \
+  --tool-slots 3 \
+  --runtime-cap-minutes 30 \
+  --emit summary
+```
+
+The one-contract estimate is the maximum selected-tool runtime, not their sum. Directory estimates multiply that maximum by the number of sequential Solidity files. `--execution-jobs 0` provides one worker per selected tool; an explicit smaller job cap makes a composition ineligible. The default tool timeout is the runtime budget converted to seconds, while an explicitly shorter timeout is checked before execution. Unknown primary runtime or a primary that exceeds these constraints produces `NO_EXECUTABLE_PLAN`; LAKES does not silently substitute another primary.
+
+Runtime evidence comes only from historical observations in `toolcards/performance_db.json`; ToolCards do not supply runtime values. Compiler-compatible, LOC-compatible scene rows must retain at least `0.2` of the original scene mass before a relevance-weighted P90 is schedulable. Weak, incompatible, campaign-cap, and unrelated historical rows remain unknown. Candidate-level provenance records units, basis, scene weights, target buckets, and available failure/count metadata.
+
+Tools whose ToolCard declares `d8_mode=fuzz` use a separate user-controlled campaign allocation instead of a fabricated historical completion time. The default campaign is the per-tool timeout derived from the runtime budget; `--tool-timeout-sec` sets the per-input campaign explicitly. Concurrent fuzzers each receive the full allocation, directory inputs multiply it sequentially, and the unchanged outer deadline is passed to both execution paths. Historical and literature evidence remains descriptive and cannot affect Stage 1 or replace the checked campaign.
+
+The top-level result status is one of `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, or `EXECUTION_FAILED`. Objects from later stages are absent after an earlier terminal status.
 
 Run selected analyzers too:
 
@@ -30,7 +113,12 @@ Run selected analyzers too:
 lakes recommend path/to/Contract.sol --execute --emit summary
 ```
 
-Outputs are written under `LAKES_out/`.
+Outputs are written under `LAKES_out/<contract>/`:
+
+- `fusion_plan.json` records the primary and additive category owner sets.
+- `tool_run_statuses.json` records success, partial, failure, timeout, and measured runtime per tool.
+- `fused_report.json` preserves source tools, raw findings, field variants, and conflicts.
+- `execution.json` records the runner invocation and execution result.
 
 ## Docker
 
