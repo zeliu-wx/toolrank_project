@@ -985,7 +985,10 @@ Stage 1 evaluation IDs come only from
   scene identity; Stage 1-ineligible rows; current-lineage projection; complete
   generation digests/counts/vector binding; pointer-once reads; dry-run current-
   generation semantics; pre/post-flip rollback and recovery; all-rejected/no-op
-  behavior; CLI help; and secret absence from process argv.
+  behavior; CLI help; and secret absence from process argv. CLI help assertions
+  must normalize ANSI control sequences with a standard-library helper before
+  matching content and must not assume that Typer installs a top-level `click`
+  package.
 
 ### 7. Wrong vs Correct
 
