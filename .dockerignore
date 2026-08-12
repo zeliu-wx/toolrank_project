@@ -8,6 +8,7 @@ Dockerfile
 **/__pycache__/
 **/*.pyc
 *.egg-info/
+build/
 dist/
 
 .env
@@ -31,7 +32,9 @@ toolcards/*passage*.json
 !toolcards/passage_store.json
 toolcards/vector_index/*
 !toolcards/vector_index/index.json
+toolcards/.private/
 
 docker/vendor/gptscan/src/output.json
 docker/vendor/gptscan/src/output.json.metadata.json
 docker/vendor/securify2/out/
+docker/vendor/smartian/build/

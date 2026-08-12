@@ -68,5 +68,11 @@ def test_soft_precision_risk_reaches_the_cego_candidate_prompt() -> None:
     payload = json.loads(
         _prompt_payload(context, matrix, None, w_recall=0.5, w_precision=0.5)
     )
-    evidence = payload["required_categories"][0]["eligible_candidates"][0]["evidence"]
-    assert any(item["id"] == "risk_b_reentrancy" and item["role"] == "oppose" for item in evidence)
+    evidence = payload["required_categories"][0]["eligible_candidates"][0][
+        "matrix_row"
+    ]["evidence_by_slot"]["AGAINST"]
+    assert any(
+        item["evidence_id"] == "risk_b_reentrancy"
+        and item["decision_role"] == "oppose"
+        for item in evidence
+    )

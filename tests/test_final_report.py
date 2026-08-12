@@ -9,7 +9,11 @@ import toolrank.report_explanation as report_explanation
 from toolrank.cego import build_primary_only_certificate
 from toolrank.checker import check_decision
 from toolrank.dace_rag import build_action_evidence_matrix
-from toolrank.openai_compat import OpenAICompatClient, OpenAICompatError
+from toolrank.openai_compat import (
+    DEFAULT_DEEPSEEK_MODEL,
+    OpenAICompatClient,
+    OpenAICompatError,
+)
 from toolrank.report_explanation import generate_combination_explanation
 from toolrank.report_parser import PARSER_PROJECTION_MARKER
 from toolrank.schemas import (
@@ -26,7 +30,8 @@ _EXPECTED_QUALITATIVE_TEXT_CONTRACT = (
     "discuss only the accepted primary, accepted complements, checked category owners, "
     "RuleChecker acceptance, and the certificate's plan and budget conclusions. Never "
     "include the raw audit fields `detected` or `total`, `R_hat`, `n_eff`, a category "
-    "rate, any other ambiguous `rate`, or their values in `text`. Never name an "
+    "rate, any other ambiguous `rate`, or statistical values in `text`. Ordinary "
+    "decimal durations such as `0.5 minutes` are allowed. Never name an "
     "unselected tool or infer why any candidate was rejected. Statistical details "
     "remain in machine evidence."
 )
@@ -102,6 +107,49 @@ def test_successful_llm_explanation_is_separate_structured_post_checker_call(
     assert matrix.model_dump(mode="json") == matrix_before
 
 
+def test_llm_explanation_uses_the_official_deepseek_model_by_default(
+    monkeypatch,
+) -> None:
+    matrix, certificate, verdict = _checked_primary_only_plan()
+    captured: dict = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "text": (
+                "The checked plan keeps a as the immutable primary and sole owner "
+                "of reentrancy within the accepted budget."
+            ),
+            "limitations": [],
+        }
+
+    monkeypatch.setattr(
+        report_explanation,
+        "create_json_chat_completion",
+        fake_completion,
+    )
+    monkeypatch.setattr(
+        report_explanation,
+        "DEFAULT_OPENAI_MODEL",
+        DEFAULT_DEEPSEEK_MODEL,
+    )
+    explanation = generate_combination_explanation(
+        client=OpenAICompatClient(
+            base_url="https://example.invalid/v1",
+            api_key="test-key",
+            timeout_sec=1.0,
+        ),
+        model="",
+        certificate=certificate,
+        checker_verdict=verdict,
+        matrix=matrix,
+        checker_enabled=True,
+    )
+
+    assert captured["model"] == DEFAULT_DEEPSEEK_MODEL
+    assert explanation.model == DEFAULT_DEEPSEEK_MODEL
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -110,6 +158,7 @@ def test_successful_llm_explanation_is_separate_structured_post_checker_call(
         "The weighted R_hat is 0.005064 with n_eff=15.",
         "The category rate is 0.005064.",
         "The supporting evidence value is 0.005064.",
+        "The supporting evidence value is 15.25.",
         "The supporting evidence value is 80%.",
         "The supporting evidence value is 12/15.",
         "The accepted plan uses a because B lacked ownership and budget.",
@@ -147,6 +196,42 @@ def test_llm_explanation_semantics_violation_has_honest_fallback(
     assert explanation.limitations == ["LLM_RESPONSE_SEMANTICS_INVALID"]
     assert certificate.model_dump(mode="json") == certificate_before
     assert matrix.model_dump(mode="json") == matrix_before
+
+
+@pytest.mark.parametrize(
+    "duration",
+    ["0.5 minutes", "1.0 minute", "0.25 seconds", "1.0 hours"],
+)
+def test_llm_explanation_accepts_ordinary_decimal_durations(
+    monkeypatch,
+    duration: str,
+) -> None:
+    matrix, certificate, verdict = _checked_primary_only_plan()
+    text = (
+        "The checked primary-only plan follows the accepted owner set and has "
+        f"an estimated total runtime of {duration} within the fixed budget."
+    )
+    monkeypatch.setattr(
+        report_explanation,
+        "create_json_chat_completion",
+        lambda **_kwargs: {"text": text, "limitations": []},
+    )
+
+    explanation = generate_combination_explanation(
+        client=OpenAICompatClient(
+            base_url="https://example.invalid/v1",
+            api_key="secret-sentinel",
+            timeout_sec=1.0,
+        ),
+        model="fake-explainer",
+        certificate=certificate,
+        checker_verdict=verdict,
+        matrix=matrix,
+        checker_enabled=True,
+    )
+
+    assert explanation.source == "LLM"
+    assert explanation.text == text
 
 
 @pytest.mark.parametrize(

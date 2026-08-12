@@ -43,30 +43,6 @@
       "include": false,
       "reason": "duplicate_performance_kb_alias",
       "duplicate_of": "smartbugsdb"
-    },
-    {
-      "name": "lakasingle_merged_by_lines_0_500_0_4_x",
-      "path": "lakasingle_merged_by_lines/lines_0-500/0.4.x",
-      "include": false,
-      "reason": "no_performance_kb_scene_identity"
-    },
-    {
-      "name": "lakasingle_merged_by_lines_500_plus_0_4_x",
-      "path": "lakasingle_merged_by_lines/lines_500+/0.4.x",
-      "include": false,
-      "reason": "no_performance_kb_scene_identity"
-    },
-    {
-      "name": "lakasingle_merged_by_lines_500_plus_0_8_x_1000_plus",
-      "path": "lakasingle_merged_by_lines/lines_500+/0.8.x_1000+",
-      "include": false,
-      "reason": "no_performance_kb_scene_identity"
-    },
-    {
-      "name": "lakasingle_merged_0_5_x",
-      "path": "lakasingle_merged/0.5.x",
-      "include": false,
-      "reason": "no_performance_kb_scene_identity"
     }
   ]
 }

@@ -25,6 +25,7 @@ ActionType = Literal[
 ]
 EvidenceSlot = Literal["FOR", "AGAINST", "COMPARE", "GAP"]
 ConfidenceLevel = Literal["low", "medium", "high"]
+MAX_COMPLEMENT_CANDIDATES = 5
 EvidenceAggregationLevel = Literal[
     "category_level",
     "tool_level",
@@ -515,7 +516,7 @@ class Stage1ToolEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool: str
-    S_t: float = Field(ge=0.0, le=1.0)
+    S_t: float | None = Field(default=None, ge=0.0, le=1.0)
     support_mass: float = Field(default=0.0, ge=0.0, le=1.0)
     benchmark_evaluations: list[Stage1BenchmarkEvidence] = Field(default_factory=list)
 
@@ -589,7 +590,7 @@ class RecallCoverageEntry(BaseModel):
     n_eff: float | None = Field(
         default=None,
         ge=0.0,
-        description="Similarity-effective category sample using raw KDE density p_hat_D.",
+        description="Similarity-effective category sample using normalized scene weight w_D.",
     )
     support_level: Literal["unsupported", "under_evidenced", "eligible"] = "unsupported"
     evidence_refs: list[str] = Field(default_factory=list)
@@ -753,6 +754,7 @@ class PipelineStatus(str, Enum):
     NO_EXECUTABLE_PLAN = "NO_EXECUTABLE_PLAN"
     PLAN_READY = "PLAN_READY"
     EXECUTED = "EXECUTED"
+    EXECUTED_PARTIAL = "EXECUTED_PARTIAL"
     EXECUTION_FAILED = "EXECUTION_FAILED"
 
 
@@ -840,7 +842,7 @@ class ComplementStrengthResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate_count_qualified: bool
-    primary_count_qualified_positive: bool
+    primary_baseline_reliable: bool
     evidence_stronger: bool
     basis: Literal[
         "CANDIDATE_COUNT_INELIGIBLE",
@@ -849,7 +851,7 @@ class ComplementStrengthResult(BaseModel):
     ]
     reason_code: Literal[
         "CANDIDATE_COUNT_EVIDENCE_INELIGIBLE",
-        "COUNT_QUALIFIED_CANDIDATE_WITHOUT_RELIABLE_POSITIVE_PRIMARY",
+        "PRIMARY_COMPARISON_BASELINE_UNRELIABLE",
         "CANDIDATE_RECALL_CREDIBLY_STRONGER",
         "CANDIDATE_RECALL_NOT_CREDIBLY_STRONGER",
     ]
@@ -863,7 +865,12 @@ class OwnerCandidateEvidence(BaseModel):
 
     tool: str
     category: str
-    eligibility: Literal["eligible", "under_evidenced", "ineligible"]
+    eligibility: Literal[
+        "eligible",
+        "not_shortlisted",
+        "under_evidenced",
+        "ineligible",
+    ]
     evidence_scope: Literal["local", "primary", "near_scene", "unrelated_external", "rag_only"]
     evidence_refs: list[str] = Field(default_factory=list)
     caveat_refs: list[str] = Field(default_factory=list)
@@ -875,8 +882,13 @@ class OwnerCandidateEvidence(BaseModel):
 
     @model_validator(mode="after")
     def _eligible_candidate_must_be_evidence_stronger(self) -> "OwnerCandidateEvidence":
-        if self.eligibility == "eligible" and not self.strength.evidence_stronger:
-            raise ValueError("eligible complement must be evidence-stronger than the primary")
+        if (
+            self.eligibility in {"eligible", "not_shortlisted"}
+            and not self.strength.evidence_stronger
+        ):
+            raise ValueError(
+                "eligible and overflow complements must be evidence-stronger than the primary"
+            )
         return self
 
 
@@ -891,11 +903,185 @@ class CategoryOwnershipPanel(BaseModel):
         "COMPLEMENT_AVAILABLE",
         "PRIMARY_ONLY_NO_COMPLEMENT",
     ] = "PRIMARY_ONLY_NO_COMPLEMENT"
-    eligible_candidates: list[OwnerCandidateEvidence] = Field(default_factory=list)
+    eligible_candidates: list[OwnerCandidateEvidence] = Field(
+        default_factory=list,
+        max_length=MAX_COMPLEMENT_CANDIDATES,
+    )
+    not_shortlisted_candidates: list[OwnerCandidateEvidence] = Field(default_factory=list)
     under_evidenced_candidates: list[OwnerCandidateEvidence] = Field(default_factory=list)
     rejected_candidates: list[OwnerCandidateEvidence] = Field(default_factory=list)
     primary_only_reason: str = ""
     caveats: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_candidate_partitions(self) -> "CategoryOwnershipPanel":
+        partitions = (
+            (self.eligible_candidates, "eligible"),
+            (self.not_shortlisted_candidates, "not_shortlisted"),
+            (self.under_evidenced_candidates, "under_evidenced"),
+            (self.rejected_candidates, "ineligible"),
+        )
+        seen: set[str] = set()
+        for candidates, expected_eligibility in partitions:
+            for candidate in candidates:
+                if candidate.category != self.category:
+                    raise ValueError("ownership candidates must match the panel category")
+                if candidate.eligibility != expected_eligibility:
+                    raise ValueError("ownership candidate eligibility must match its partition")
+                if candidate.tool in seen:
+                    raise ValueError("ownership candidate partitions must be tool-disjoint")
+                seen.add(candidate.tool)
+
+        if self.assignment_status == "COMPLEMENT_AVAILABLE":
+            if not self.eligible_candidates:
+                raise ValueError("COMPLEMENT_AVAILABLE requires an eligible candidate")
+        elif self.eligible_candidates or self.not_shortlisted_candidates:
+            raise ValueError(
+                "non-complement ownership states cannot expose shortlisted candidates"
+            )
+        if self.assignment_status == "PRIMARY_SUFFICIENT" and (
+            self.under_evidenced_candidates or self.rejected_candidates
+        ):
+            raise ValueError("PRIMARY_SUFFICIENT cannot expose complement candidates")
+
+        ranked = [
+            *self.eligible_candidates,
+            *self.not_shortlisted_candidates,
+        ]
+        if ranked != sorted(
+            ranked,
+            key=lambda candidate: (
+                -(candidate.rate or 0.0),
+                -(candidate.n_eff or 0.0),
+                candidate.tool,
+            ),
+        ):
+            raise ValueError(
+                "eligible candidates must be the highest-ranked shortlist"
+            )
+        if (
+            self.not_shortlisted_candidates
+            and len(self.eligible_candidates) != MAX_COMPLEMENT_CANDIDATES
+        ):
+            raise ValueError(
+                "overflow candidates require a full legal shortlist"
+            )
+        return self
+
+
+class PassageRetrievalDiagnostic(BaseModel):
+    """Visible result of one action-conditioned retrieval cell."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: str
+    owner_tool: str
+    action_scope: Literal["PLAN_COMPOSITION"] = "PLAN_COMPOSITION"
+    query_text: str
+    mode: Literal[
+        "HYBRID_BM25_DENSE",
+        "LEXICAL_BM25_FALLBACK",
+        "RETRIEVER_UNAVAILABLE",
+    ]
+    dense_status: Literal[
+        "USED",
+        "API_KEY_UNAVAILABLE",
+        "INDEX_UNAVAILABLE",
+        "QUERY_FAILED",
+        "NOT_ATTEMPTED",
+    ]
+    reason_codes: list[str] = Field(default_factory=list)
+    lexical_hit_count: int = Field(default=0, ge=0)
+    dense_hit_count: int = Field(default=0, ge=0)
+    returned_passage_ids: list[str] = Field(default_factory=list)
+    fusion_method: Literal[
+        "reciprocal_rank_fusion",
+        "lexical_bm25",
+        "none",
+    ] = "none"
+
+    @field_validator("reason_codes", "returned_passage_ids")
+    @classmethod
+    def _dedupe_diagnostic_values(cls, value: list[str]) -> list[str]:
+        return _dedupe_keep_order(value)
+
+
+class MatrixTargetConstraints(BaseModel):
+    """Target constraints copied once from the typed Stage 1 target."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    primary_solidity_version: str | None = None
+    solidity_version_constraints: list[str] = Field(default_factory=list)
+    gower_solc_bucket: str | None = None
+    present_input_kinds: list[str] = Field(default_factory=list)
+    source_kind: str | None = None
+    loc_total: int | None = Field(default=None, ge=0)
+    execution_input_count: int | None = Field(default=None, ge=0)
+
+
+class MatrixRuntimeEvidence(BaseModel):
+    """Complete planning and historical-runtime row for one matrix tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_runtime_minutes: float | None = Field(default=None, gt=0.0)
+    planning_runtime_minutes: float | None = Field(default=None, gt=0.0)
+    runtime_provenance: RuntimeEstimateProvenance | None = None
+    runtime_evidence: RuntimeEvidenceAssessment | None = None
+    fuzz_campaign_budget: FuzzCampaignBudget | None = None
+    limitations: list[str] = Field(default_factory=list)
+
+
+class MatrixEvidenceApplicability(BaseModel):
+    """Typed applicability projection for one evidence card."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str
+    applicability_tags: list[str] = Field(default_factory=list)
+    applies_to_target: bool | None = None
+
+
+class RelevantToolCategoryRow(BaseModel):
+    """Complete primary/candidate row serialized to CEGO without rebuilding."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: str
+    tool: str
+    role: Literal["PRIMARY", "FEASIBLE_CANDIDATE"]
+    feasible: bool
+    feasibility_reasons: list[str] = Field(default_factory=list)
+    ownership_eligibility: Literal[
+        "PRIMARY",
+        "ELIGIBLE",
+        "NOT_SHORTLISTED",
+        "UNDER_EVIDENCED",
+        "INELIGIBLE",
+        "PRIMARY_SUFFICIENT_CLOSED",
+    ]
+    stage1_evidence: Stage1ToolEvidence
+    category_evidence: RecallCoverageEntry | None = None
+    evidence_by_slot: dict[EvidenceSlot, list[EvidenceCard]] = Field(default_factory=dict)
+    applicability: list[MatrixEvidenceApplicability] = Field(default_factory=list)
+    target_constraints: MatrixTargetConstraints
+    runtime_evidence: MatrixRuntimeEvidence
+    primary_decision: PrimaryCategoryDecision
+    strength: ComplementStrengthResult | None = None
+
+    @model_validator(mode="after")
+    def _validate_row_identity(self) -> "RelevantToolCategoryRow":
+        if self.stage1_evidence.tool != self.tool:
+            raise ValueError("matrix row Stage 1 evidence must match its tool")
+        if set(self.evidence_by_slot) != {"FOR", "AGAINST", "COMPARE", "GAP"}:
+            raise ValueError("matrix rows must retain all four evidence slots")
+        if self.role == "PRIMARY":
+            if self.ownership_eligibility != "PRIMARY" or self.strength is not None:
+                raise ValueError("primary matrix rows cannot carry candidate strength")
+        elif not self.feasible:
+            raise ValueError("candidate matrix rows must be feasible")
+        return self
 
 
 class ActionEvidenceClaim(BaseModel):
@@ -906,7 +1092,7 @@ class ActionEvidenceClaim(BaseModel):
 
 
 class CegoComplementProposal(BaseModel):
-    """One strictly decoded complement ballot from a CEGO sample."""
+    """One strictly decoded complement proposed by CEGO."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -932,7 +1118,7 @@ class CegoComplementProposal(BaseModel):
         return value
 
 
-class CegoProposalSample(BaseModel):
+class CegoProposal(BaseModel):
     """Strict local boundary for one raw CEGO model response."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -940,10 +1126,10 @@ class CegoProposalSample(BaseModel):
     complements: list[CegoComplementProposal]
 
     @model_validator(mode="after")
-    def _reject_duplicate_categories(self) -> "CegoProposalSample":
+    def _reject_duplicate_categories(self) -> "CegoProposal":
         categories = [proposal.category for proposal in self.complements]
         if len(categories) != len(set(categories)):
-            raise ValueError("CEGO samples cannot repeat a category")
+            raise ValueError("A CEGO proposal cannot repeat a category")
         return self
 
 
@@ -982,6 +1168,8 @@ class ActionByEvidenceMatrix(BaseModel):
     actions: list[CandidateAction] = Field(default_factory=list)
     evidence_cards: list[EvidenceCard] = Field(default_factory=list)
     ownership_panel: dict[str, CategoryOwnershipPanel] = Field(default_factory=dict)
+    retrieval_diagnostics: list[PassageRetrievalDiagnostic] = Field(default_factory=list)
+    relevant_matrix_rows: list[RelevantToolCategoryRow] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_evidence_links(self) -> "ActionByEvidenceMatrix":
@@ -1021,10 +1209,110 @@ class ActionByEvidenceMatrix(BaseModel):
         required_tools.update(
             candidate.tool
             for panel in self.ownership_panel.values()
-            for candidate in panel.eligible_candidates
+            for candidates in (
+                panel.eligible_candidates,
+                panel.not_shortlisted_candidates,
+            )
+            for candidate in candidates
         )
         if not required_tools.issubset(self.stage1_evidence.tools):
             raise ValueError("Stage 1 evidence must include the primary and every legal candidate")
+
+        row_keys = [(row.category, row.tool) for row in self.relevant_matrix_rows]
+        if len(row_keys) != len(set(row_keys)):
+            raise ValueError("relevant matrix rows must be unique per category and tool")
+        expected_row_keys = {
+            (category, tool)
+            for category in self.ownership_panel
+            for tool in self.stage1_evidence.tools
+        }
+        if set(row_keys) != expected_row_keys:
+            raise ValueError(
+                "relevant matrix rows must include the primary and every feasible candidate"
+            )
+        row_by_key = {
+            (row.category, row.tool): row
+            for row in self.relevant_matrix_rows
+        }
+        for category, panel in self.ownership_panel.items():
+            if panel.category != category:
+                raise ValueError("ownership panel key must match its category")
+            expected_eligibility = {
+                self.stage1_evidence.primary_tool: "PRIMARY",
+            }
+            if panel.assignment_status == "PRIMARY_SUFFICIENT":
+                expected_eligibility.update(
+                    {
+                        tool: "PRIMARY_SUFFICIENT_CLOSED"
+                        for tool in self.stage1_evidence.tools
+                        if tool != self.stage1_evidence.primary_tool
+                    }
+                )
+            else:
+                for candidates, eligibility in (
+                    (panel.eligible_candidates, "ELIGIBLE"),
+                    (panel.not_shortlisted_candidates, "NOT_SHORTLISTED"),
+                    (panel.under_evidenced_candidates, "UNDER_EVIDENCED"),
+                    (panel.rejected_candidates, "INELIGIBLE"),
+                ):
+                    expected_eligibility.update(
+                        {
+                            candidate.tool: eligibility
+                            for candidate in candidates
+                            if candidate.tool in self.stage1_evidence.tools
+                        }
+                    )
+            if set(expected_eligibility) != set(self.stage1_evidence.tools):
+                raise ValueError(
+                    "ownership panel must classify every feasible matrix tool"
+                )
+            for tool, eligibility in expected_eligibility.items():
+                row = row_by_key[(category, tool)]
+                if row.ownership_eligibility != eligibility:
+                    raise ValueError(
+                        "matrix row ownership eligibility differs from its panel partition"
+                    )
+                if row.primary_decision != panel.primary_decision:
+                    raise ValueError(
+                        "matrix row primary decision differs from its ownership panel"
+                    )
+        for row in self.relevant_matrix_rows:
+            if row.stage1_evidence != self.stage1_evidence.tools[row.tool]:
+                raise ValueError("matrix row Stage 1 lineage differs from matrix lineage")
+            row_cards = [
+                card
+                for slot in ("FOR", "AGAINST", "COMPARE", "GAP")
+                for card in row.evidence_by_slot[slot]
+            ]
+            row_card_ids = [card.evidence_id for card in row_cards]
+            if len(row_card_ids) != len(set(row_card_ids)):
+                raise ValueError("matrix row evidence cards cannot be duplicated")
+            expected_cards = {
+                card.evidence_id: card
+                for card in self.evidence_cards
+                if card.tool == row.tool
+                and card.category in {None, row.category, GLOBAL_CATEGORY}
+            }
+            if set(row_card_ids) != set(expected_cards):
+                raise ValueError("matrix row does not contain its complete evidence")
+            if any(card != expected_cards[card.evidence_id] for card in row_cards):
+                raise ValueError("matrix row evidence differs from matrix-owned cards")
+
+        diagnostic_keys = [
+            (item.category, item.owner_tool, item.action_scope)
+            for item in self.retrieval_diagnostics
+        ]
+        if len(diagnostic_keys) != len(set(diagnostic_keys)):
+            raise ValueError("retrieval diagnostics must be unique per query cell")
+        expected_diagnostic_keys = {
+            (category, tool, "PLAN_COMPOSITION")
+            for category in self.ownership_panel
+            for tool in self.stage1_evidence.tools
+        }
+        if set(diagnostic_keys) != expected_diagnostic_keys:
+            raise ValueError(
+                "retrieval diagnostics must cover every category-owner action cell"
+            )
         return self
 
 

@@ -38,14 +38,14 @@ def _context():
             entry(
                 "dataset_d1",
                 [
-                    observation("a", recall=0.9, precision=0.9, detected=1, total=5),
+                    observation("a", recall=0.9, precision=0.9, detected=0, total=15),
                     observation("b", recall=0.8, precision=0.8, detected=15, total=15),
                 ],
             ),
             entry(
                 "dataset_d2",
                 [
-                    observation("a", recall=0.9, precision=0.9, detected=1, total=5),
+                    observation("a", recall=0.9, precision=0.9, detected=0, total=15),
                     observation("b", recall=0.7, precision=0.7, detected=15, total=15),
                 ],
             ),
@@ -296,25 +296,27 @@ def test_cego_payload_carries_top_level_stage1_and_per_passage_lineage() -> None
     assert payload["stage1_evidence"]["primary_tool"] == "a"
     assert set(payload["stage1_evidence"]["tools"]) == {"a", "b"}
     assert payload["stage1_evidence"]["tools"]["a"]["S_t"] == pytest.approx(1.0)
+    assert payload["stage1_evidence"] == matrix.stage1_evidence.model_dump(
+        mode="json"
+    )
+    candidate = payload["required_categories"][0]["eligible_candidates"][0]
+    assert "stage1_evidence" not in candidate["matrix_row"]
     evidence = {
-        item["id"]: item
-        for item in payload["required_categories"][0]["eligible_candidates"][0]["evidence"]
+        item["evidence_id"]: item
+        for items in candidate["matrix_row"]["evidence_by_slot"].values()
+        for item in items
     }
     assert evidence[one.passage_id]["evidence_type"] == "rag_passage"
     assert evidence[one.passage_id]["source"]["paper_id"] == "dataset_d1"
     assert evidence[one.passage_id]["benchmark_relevance_weight"] == pytest.approx(0.7)
-    assert [row["evaluation_id"] for row in evidence[one.passage_id]["linked_evaluations"]] == [
+    assert evidence[one.passage_id]["linked_evaluation_ids"] == [
         ids["dataset_d1"]
     ]
-    assert [row["evaluation_id"] for row in evidence[many.passage_id]["linked_evaluations"]] == [
+    assert evidence[many.passage_id]["linked_evaluation_ids"] == [
         ids["dataset_d1"],
         ids["dataset_d2"],
     ]
-    assert [row["w_D"] for row in evidence[many.passage_id]["linked_evaluations"]] == [
-        pytest.approx(0.7),
-        pytest.approx(0.3),
-    ]
-    assert evidence[unlinked.passage_id]["linked_evaluations"] == []
+    assert evidence[unlinked.passage_id]["linked_evaluation_ids"] == []
     assert evidence[unlinked.passage_id]["benchmark_relevance_weight"] is None
 
 

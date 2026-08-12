@@ -10,7 +10,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from toolrank.action_contract import action_id_for
-from toolrank.assignment_evidence import complement_count_eligible
+from toolrank.assignment_evidence import (
+    complement_count_eligible,
+    complement_strength_against_primary,
+)
 from toolrank.ownership_evidence import category_ownership_panel, rcov_evidence_id
 from toolrank.passage_store import PassageRetriever
 from toolrank.plan_runtime import (
@@ -27,7 +30,12 @@ from toolrank.schemas_v2 import (
     EvidenceCard,
     EvidenceCardValue,
     EvidenceRef,
+    MatrixEvidenceApplicability,
+    MatrixRuntimeEvidence,
+    MatrixTargetConstraints,
     Passage,
+    PassageRetrievalDiagnostic,
+    RelevantToolCategoryRow,
     Stage1BenchmarkEvidence,
     Stage1EvidenceLineage,
     Stage1Status,
@@ -100,12 +108,10 @@ def _stage1_evidence(context: Stage2EvidenceContext) -> Stage1EvidenceLineage:
     tools: dict[str, Stage1ToolEvidence] = {}
     for tool in tool_ids:
         score = nominal.get(tool)
-        if score is None:
-            raise ValueError(f"Stage 1 score missing for projected tool: {tool}")
         tools[tool] = Stage1ToolEvidence(
             tool=tool,
-            S_t=score.S_scene,
-            support_mass=score.support_mass,
+            S_t=score.S_scene if score is not None else None,
+            support_mass=score.support_mass if score is not None else 0.0,
             benchmark_evaluations=rows_by_tool.get(tool, []),
         )
     return Stage1EvidenceLineage(
@@ -634,16 +640,86 @@ def _retrieved_cards(
     context: Stage2EvidenceContext,
     retriever: PassageRetriever | None,
     lineage: Stage1EvidenceLineage,
-) -> list[EvidenceCard]:
-    if retriever is None or not context.required_categories:
-        return []
-    tools = [entry.tool for entry in context.stage1.tool_table if entry.feasible]
+) -> tuple[list[EvidenceCard], list[PassageRetrievalDiagnostic]]:
+    if not context.required_categories:
+        return [], []
+    tools = list(lineage.tools)
     passages: list[Passage] = []
-    for categories in (context.required_categories, ["__GLOBAL__"]):
-        try:
-            passages.extend(retriever.retrieve(tools, categories, top_k=max(8, len(tools) * 3)))
-        except (AttributeError, RuntimeError, ValueError):
-            continue
+    diagnostics: list[PassageRetrievalDiagnostic] = []
+    for category in dict.fromkeys(context.required_categories):
+        for tool in tools:
+            if retriever is None:
+                diagnostics.append(
+                    PassageRetrievalDiagnostic(
+                        category=category,
+                        owner_tool=tool,
+                        query_text=f"{category} {tool} PLAN_COMPOSITION",
+                        mode="RETRIEVER_UNAVAILABLE",
+                        dense_status="NOT_ATTEMPTED",
+                        reason_codes=["PASSAGE_RETRIEVER_UNAVAILABLE"],
+                        fusion_method="none",
+                    )
+                )
+                continue
+            try:
+                retrieve_for_action = getattr(
+                    retriever,
+                    "retrieve_for_action",
+                    None,
+                )
+                if callable(retrieve_for_action):
+                    result = retrieve_for_action(
+                        category=category,
+                        owner_tool=tool,
+                        action_scope="PLAN_COMPOSITION",
+                        top_k=8,
+                    )
+                    cell_passages = list(result.passages)
+                    diagnostics.append(result.diagnostic)
+                else:
+                    cell_passages = list(
+                        retriever.retrieve(
+                            [tool],
+                            [category, "__GLOBAL__"],
+                            top_k=8,
+                        )
+                    )
+                    diagnostics.append(
+                        PassageRetrievalDiagnostic(
+                            category=category,
+                            owner_tool=tool,
+                            query_text=f"{category} {tool} PLAN_COMPOSITION",
+                            mode="LEXICAL_BM25_FALLBACK",
+                            dense_status="NOT_ATTEMPTED",
+                            reason_codes=["LEGACY_RETRIEVER_INTERFACE"],
+                            lexical_hit_count=len(cell_passages),
+                            returned_passage_ids=[
+                                passage.passage_id
+                                for passage in cell_passages
+                            ],
+                            fusion_method="lexical_bm25",
+                        )
+                    )
+            except (AttributeError, RuntimeError, ValueError):
+                diagnostics.append(
+                    PassageRetrievalDiagnostic(
+                        category=category,
+                        owner_tool=tool,
+                        query_text=f"{category} {tool} PLAN_COMPOSITION",
+                        mode="RETRIEVER_UNAVAILABLE",
+                        dense_status="QUERY_FAILED",
+                        reason_codes=["PASSAGE_RETRIEVAL_QUERY_FAILED"],
+                        fusion_method="none",
+                    )
+                )
+                continue
+            passages.extend(
+                passage
+                for passage in cell_passages
+                if passage.owner_tool == tool
+                and "PLAN_COMPOSITION" in passage.action_scope
+                and passage.category in {category, "__GLOBAL__"}
+            )
     cards: list[EvidenceCard] = []
     seen: set[str] = set()
     for passage in passages:
@@ -655,7 +731,7 @@ def _retrieved_cards(
             continue
         cards.append(_rag_card(context, passage, lineage))
         seen.add(passage.passage_id)
-    return cards
+    return cards, diagnostics
 
 
 def _attach_passage_ids(
@@ -687,6 +763,211 @@ def _attach_passage_ids(
         for tool_id, tool in lineage.tools.items()
     }
     return lineage.model_copy(update={"tools": tools})
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _target_constraints(context: Stage2EvidenceContext) -> MatrixTargetConstraints:
+    features = _target_features(context)
+    return MatrixTargetConstraints(
+        primary_solidity_version=(
+            features.get("primary_solidity_version")
+            if isinstance(features.get("primary_solidity_version"), str)
+            else None
+        ),
+        solidity_version_constraints=_string_list(
+            features.get("solidity_version_constraints")
+        ),
+        gower_solc_bucket=(
+            features.get("gower_solc_bucket")
+            if isinstance(features.get("gower_solc_bucket"), str)
+            else None
+        ),
+        present_input_kinds=_string_list(features.get("present_input_kinds")),
+        source_kind=(
+            features.get("source_kind")
+            if isinstance(features.get("source_kind"), str)
+            else None
+        ),
+        loc_total=(
+            features.get("loc_total")
+            if isinstance(features.get("loc_total"), int)
+            and features.get("loc_total") >= 0
+            else None
+        ),
+        execution_input_count=(
+            features.get("execution_input_count")
+            if isinstance(features.get("execution_input_count"), int)
+            and features.get("execution_input_count") >= 0
+            else None
+        ),
+    )
+
+
+def _matrix_runtime_evidence(entry) -> MatrixRuntimeEvidence:
+    provenance = entry.tool_cost.runtime_provenance
+    assessment = entry.tool_cost.runtime_evidence
+    campaign = entry.tool_cost.fuzz_campaign_budget
+    limitations = list(
+        dict.fromkeys(
+            [
+                *(provenance.limitations if provenance is not None else []),
+                *(assessment.limitations if assessment is not None else []),
+                *(
+                    ["FUZZ_CAMPAIGN_ALLOCATION_NOT_COMPLETION_ESTIMATE"]
+                    if campaign is not None
+                    else []
+                ),
+            ]
+        )
+    )
+    return MatrixRuntimeEvidence(
+        expected_runtime_minutes=entry.tool_cost.expected_runtime_minutes,
+        planning_runtime_minutes=planning_runtime_minutes(entry),
+        runtime_provenance=provenance,
+        runtime_evidence=assessment,
+        fuzz_campaign_budget=campaign,
+        limitations=limitations,
+    )
+
+
+def _evidence_slot(card: EvidenceCard) -> str:
+    if card.decision_role == "support":
+        return "FOR"
+    if card.decision_role in {"oppose", "constraint", "caveat"}:
+        return "AGAINST"
+    if card.decision_role == "compare":
+        return "COMPARE"
+    return "GAP"
+
+
+def _relevant_matrix_rows(
+    context: Stage2EvidenceContext,
+    lineage: Stage1EvidenceLineage,
+    cards: list[EvidenceCard],
+    ownership: dict,
+) -> list[RelevantToolCategoryRow]:
+    primary = lineage.primary_tool
+    table = {entry.tool: entry for entry in context.stage1.tool_table}
+    coverage = {
+        (row.tool, row.category): row
+        for row in context.recall_coverage.matrix
+    }
+    target_constraints = _target_constraints(context)
+    rows: list[RelevantToolCategoryRow] = []
+    for category in dict.fromkeys(context.required_categories):
+        panel = ownership[category]
+        primary_row = coverage.get((primary, category))
+        candidates = {
+            candidate.tool: ("ELIGIBLE", candidate)
+            for candidate in panel.eligible_candidates
+        }
+        candidates.update(
+            {
+                candidate.tool: ("NOT_SHORTLISTED", candidate)
+                for candidate in panel.not_shortlisted_candidates
+            }
+        )
+        candidates.update(
+            {
+                candidate.tool: ("UNDER_EVIDENCED", candidate)
+                for candidate in panel.under_evidenced_candidates
+            }
+        )
+        candidates.update(
+            {
+                candidate.tool: ("INELIGIBLE", candidate)
+                for candidate in panel.rejected_candidates
+            }
+        )
+        for tool, stage1_evidence in lineage.tools.items():
+            entry = table[tool]
+            relevant_cards = [
+                card
+                for card in cards
+                if card.tool == tool
+                and card.category in {None, category, "__GLOBAL__"}
+            ]
+            evidence_by_slot: dict[str, list[EvidenceCard]] = {
+                slot: [] for slot in _SLOTS
+            }
+            for card in relevant_cards:
+                evidence_by_slot[_evidence_slot(card)].append(card)
+            applicability = [
+                MatrixEvidenceApplicability(
+                    evidence_id=card.evidence_id,
+                    applicability_tags=_string_list(
+                        card.scope.get("applicability_tags")
+                    ),
+                    applies_to_target=(
+                        card.scope.get("applies_to_target")
+                        if isinstance(
+                            card.scope.get("applies_to_target"),
+                            bool,
+                        )
+                        else None
+                    ),
+                )
+                for card in relevant_cards
+                if card.evidence_type == "rag_passage"
+            ]
+            category_row = coverage.get((tool, category))
+            if tool == primary:
+                eligibility = "PRIMARY"
+                strength = None
+                role = "PRIMARY"
+            else:
+                role = "FEASIBLE_CANDIDATE"
+                if panel.assignment_status == "PRIMARY_SUFFICIENT":
+                    eligibility = "PRIMARY_SUFFICIENT_CLOSED"
+                    strength = complement_strength_against_primary(
+                        candidate_rate=(
+                            category_row.R_hat
+                            if category_row is not None
+                            else None
+                        ),
+                        candidate_n_eff=(
+                            category_row.n_eff
+                            if category_row is not None
+                            else None
+                        ),
+                        primary_rate=(
+                            primary_row.R_hat
+                            if primary_row is not None
+                            else None
+                        ),
+                        primary_n_eff=(
+                            primary_row.n_eff
+                            if primary_row is not None
+                            else None
+                        ),
+                    )
+                else:
+                    eligibility, candidate = candidates[tool]
+                    strength = candidate.strength
+            rows.append(
+                RelevantToolCategoryRow(
+                    category=category,
+                    tool=tool,
+                    role=role,
+                    feasible=entry.feasible,
+                    feasibility_reasons=list(entry.feasibility_reasons),
+                    ownership_eligibility=eligibility,
+                    stage1_evidence=stage1_evidence,
+                    category_evidence=category_row,
+                    evidence_by_slot=evidence_by_slot,
+                    applicability=applicability,
+                    target_constraints=target_constraints,
+                    runtime_evidence=_matrix_runtime_evidence(entry),
+                    primary_decision=panel.primary_decision,
+                    strength=strength,
+                )
+            )
+    return rows
 
 
 def _action(
@@ -748,19 +1029,30 @@ def build_action_evidence_matrix(
     primary = selection.primary_tool
 
     stage1_evidence = _stage1_evidence(context)
+    retrieved_cards, retrieval_diagnostics = _retrieved_cards(
+        context,
+        retriever,
+        stage1_evidence,
+    )
     cards = [
         *_stage1_score_cards(context, stage1_evidence),
         *_recall_cards(context, stage1_evidence),
         *_external_performance_cards(context, stage1_evidence),
         *_overall_metric_cards(context, stage1_evidence),
         *_runtime_cards(context),
-        *_retrieved_cards(context, retriever, stage1_evidence),
+        *retrieved_cards,
     ]
     stage1_evidence = _attach_passage_ids(stage1_evidence, cards)
     ownership = {
         category: category_ownership_panel(context, cards, category, budget)
         for category in dict.fromkeys(context.required_categories)
     }
+    relevant_rows = _relevant_matrix_rows(
+        context,
+        stage1_evidence,
+        cards,
+        ownership,
+    )
 
     run_evidence = _empty_evidence()
     primary_entry = next(
@@ -840,4 +1132,6 @@ def build_action_evidence_matrix(
         actions=actions,
         evidence_cards=cards,
         ownership_panel=ownership,
+        retrieval_diagnostics=retrieval_diagnostics,
+        relevant_matrix_rows=relevant_rows,
     )

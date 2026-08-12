@@ -72,3 +72,53 @@ def test_checker_recomputes_candidate_strength_as_defense_in_depth() -> None:
         "COMPLEMENT_NOT_EVIDENCE_STRONGER_THAN_PRIMARY:reentrancy:b"
         in verdict.rule_failures
     )
+
+
+def test_checker_rejects_complement_when_primary_baseline_is_unreliable() -> None:
+    limit = budget()
+    reliable_context = stage2_context(
+        primary_rate=0.0,
+        primary_n_eff=15.0,
+        peer_rate=0.8,
+        peer_n_eff=100.0,
+    )
+    reliable_matrix = build_action_evidence_matrix(reliable_context, limit)
+    certificate = assemble_decision(
+        {
+            "complements": [
+                {
+                    "category": "reentrancy",
+                    "tool": "b",
+                    "evidence_refs": ["ev_rcov_b_reentrancy"],
+                }
+            ]
+        },
+        reliable_context,
+        reliable_matrix,
+        limit,
+    )
+
+    unreliable_context = stage2_context(
+        primary_rate=0.2,
+        primary_n_eff=14.999,
+        peer_rate=0.8,
+        peer_n_eff=100.0,
+    )
+    unreliable_matrix = build_action_evidence_matrix(
+        unreliable_context,
+        limit,
+    )
+    verdict = check_decision(
+        certificate,
+        unreliable_context,
+        unreliable_matrix,
+    )
+
+    assert (
+        "COMPLEMENT_NOT_IN_ELIGIBLE_PANEL:reentrancy:b"
+        in verdict.rule_failures
+    )
+    assert (
+        "COMPLEMENT_NOT_EVIDENCE_STRONGER_THAN_PRIMARY:reentrancy:b"
+        in verdict.rule_failures
+    )

@@ -13,7 +13,7 @@
     "canonical_target_profile_reused_for_both_artifacts": true,
     "legacy_artifact_sha256": "025b5f229c368a712dd0fe6368af510b0e96dbbf88a6cc1ffe5aecc6c1461f50",
     "legacy_artifact_reference": "pre-migration toolcards/contract_profiles.json Git baseline",
-    "rebuilt_artifact_sha256": "e145f5e923df525c5d1f37e663ae8cbe00b960482d11fe083da58da270e8593a"
+    "rebuilt_artifact_sha256": "58d38e304a9eaed24631aaa3ccdd978e8d2f63c6b55509555de80b02399b52c0"
   },
   "dataset_membership": {
     "added": [],
@@ -75,20 +75,29 @@
       "coupling": [0, 27]
     },
     "bandwidth": 0.08,
-    "bandwidth_fit_digest": "db9255d62db17a9d3b90f95412ea25c9b817a38511eb1fa413205a3c3f11169d",
+    "bandwidth_method": "full_leave_one_out_gaussian_grid_v1",
+    "bandwidth_sample_size": 2934,
+    "bandwidth_fit_digest": "56dc3e986bb733875d7f47e3a690a7ce5303bc97432a67afac3f038c208035eb",
     "source_digest": "85727b36fa52b927d72e96e4dec0cfe3ca601ad55ea2909df94a033c299f07a0",
     "profiles_digest": "929a8688608014933480f68a04cae84f2073d5dbbce9828fe81f3200d4805d58"
   },
   "full_loo_validation": {
-    "method": "full leave-one-out Gaussian-grid validation",
+    "method": "full_leave_one_out_gaussian_grid_v1",
     "sample_count": 2934,
+    "artifact_sample_size": 2934,
     "selected_bandwidth": 0.08,
     "builder_bandwidth": 0.08,
     "matches_builder": true,
     "reported_log_likelihoods": {
-      "0.05": 1477.63,
-      "0.08": 1574.1,
-      "0.12": 1121.2
+      "0.01": -2694.2058700234,
+      "0.02": -461.827083337246,
+      "0.03": 617.180427077067,
+      "0.05": 1477.627355655023,
+      "0.08": 1574.100604454235,
+      "0.12": 1121.203753634055,
+      "0.18": 370.402525229028,
+      "0.25": -142.44758159146,
+      "0.35": -592.720118736288
     }
   },
   "compiler_fallback_recovery": {

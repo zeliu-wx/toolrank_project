@@ -195,8 +195,12 @@ def test_native_mixed_shared_source_history_reports_consumption_after_one_succes
 
     completed = execution._native_smartbugs_execute(plan)
 
-    assert completed.status == "failed"
+    assert completed.status == "partial"
     assert {status.status for status in completed.tool_statuses.values()} == {"PARTIAL"}
+    assert all(
+        completed.per_tool_findings[tool]
+        for tool in ("smartian", "vandal")
+    )
     assert all(
         status.artifact_consumption is not None
         and status.artifact_consumption.consumed is True

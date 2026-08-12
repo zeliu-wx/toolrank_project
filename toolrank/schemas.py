@@ -717,7 +717,9 @@ class ToolExecutionStatus(BaseModel):
 class ExecutionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["not_requested", "planned", "executed", "failed"] = "not_requested"
+    status: Literal["not_requested", "planned", "executed", "partial", "failed"] = (
+        "not_requested"
+    )
     execution_mode: str = "none"
     target_path: Optional[str] = None
     results_root: Optional[str] = None

@@ -38,14 +38,14 @@ def _resolve_use_gpt4(default_flag: bool) -> bool:
     return raw in {"1", "true", "yes", "y", "on"}
 
 
-def ask_with_timeout(prompt, gpt4=False, timeout=90):
+def ask_with_timeout(prompt, gpt4=False, timeout=90, json_mode=False):
     # logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     # logger.info(f"Sending message: \n{prompt}")
     # logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     timeout = _resolve_timeout(timeout)
     gpt4 = _resolve_use_gpt4(gpt4)
     pool = multiprocessing.Pool(processes=1)
-    process = pool.apply_async(Chat().sendMessages, args=(prompt, gpt4))
+    process = pool.apply_async(Chat().sendMessages, args=(prompt, gpt4, json_mode))
     start_time = time.time()
     completed = False
     try:
@@ -329,7 +329,7 @@ def ask_whether_has_vul_with_scenario_v9(src_folder: str, rules: List[dict]) -> 
                         console.print(rich_utils.make_prompt_panel(function_data["source"], "\n".join(list(map(lambda x: x["property"][0], has_property_rules))), "Multiple Choice Scenarios"))
                         prompt = prompt_multiple_choice_scenarios(
                             list(map(lambda x: x["property"][0], has_property_rules)), function_data["source"])
-                        res = ask_with_timeout(prompt)
+                        res = ask_with_timeout(prompt, json_mode=True)
                         answer = json.loads(res.split("}")[0]+"}")
                         for key, value in answer.items():
                             try:
@@ -419,7 +419,7 @@ def ask_whether_has_vul_with_scenario_v9(src_folder: str, rules: List[dict]) -> 
                             list(map(lambda x: x["property"][0], rules_for_caller)), caller_c+"\n"+function_data["source"])
                         try:
                             console.print(rich_utils.make_prompt_panel(caller_c+"\n"+function_data["source"], "\n".join(list(map(lambda x: x["property"][0], rules_for_caller))), "Multiple Choice Scenarios"))
-                            res = ask_with_timeout(prompt)
+                            res = ask_with_timeout(prompt, json_mode=True)
                             answer = json.loads(res.split("}")[0]+"}")
                         except TimeoutError:
                             logger.error(
@@ -588,7 +588,7 @@ def _pick_best_json_obj(candidates: List[dict], expected_keys: List[str]) -> dic
     return candidates[0]
 
 def ask_for_static_json(prompts, source, answer_keys):
-    res = ask_with_timeout(prompts+"\n"+source)
+    res = ask_with_timeout(prompts+"\n"+source, json_mode=True)
     # process answer
     answer = {}
     candidates = _extract_json_candidates(res)
@@ -607,7 +607,7 @@ def ask_for_static_json(prompts, source, answer_keys):
     return answer, data
 
 def ask_for_static_json_single(prompts, source, answer_key):
-    res = ask_with_timeout(prompts+"\n"+source)
+    res = ask_with_timeout(prompts+"\n"+source, json_mode=True)
     candidates = _extract_json_candidates(res)
     data = _pick_best_json_obj(candidates, [answer_key])
     if answer_key in data:

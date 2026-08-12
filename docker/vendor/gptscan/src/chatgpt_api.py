@@ -8,6 +8,7 @@ import time
 import traceback
 import tiktoken
 from multiprocessing import Value
+from urllib.parse import urlparse
 import rich
 import rich_utils
 logger = logging.getLogger(__name__)
@@ -34,6 +35,11 @@ tokens_sent_gpt4 = Value("d", 0)
 tokens_received_gpt4 = Value("d", 0)
 
 
+def _is_deepseek_host(base_url: str) -> bool:
+    hostname = (urlparse(base_url).hostname or "").lower()
+    return hostname == "api.deepseek.com" or hostname.endswith(".deepseek.com")
+
+
 class Chat:
     def __init__(self) -> None:
         self.currentSession:List[Dict[str,str]] = []
@@ -41,7 +47,7 @@ class Chat:
     def newSession(self) -> None:
         self.currentSession = []
     
-    def sendMessages(self, message:str, GPT4=False) -> str:
+    def sendMessages(self, message:str, GPT4=False, json_mode=False) -> str:
 
         # logger.info(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         # logger.info(f"Sending message: \n{message}")
@@ -54,6 +60,7 @@ class Chat:
         api_base = os.getenv(ENV_API_BASE) or os.getenv(ENV_BASE_URL)
         if api_base:
             openai.api_base = api_base
+        effective_api_base = api_base or getattr(openai, "api_base", "") or ""
 
         # Prefer env key; otherwise keep whatever was already configured (e.g., via CLI -k/--gptkey).
         # Only if no key is set, fall back to config defaults.
@@ -66,6 +73,11 @@ class Chat:
 
         model_default = os.getenv(ENV_MODEL) or DEFAULT_MODEL
         model_gpt4 = os.getenv(ENV_MODEL_GPT4) or DEFAULT_MODEL_GPT4
+        request_options = {}
+        if _is_deepseek_host(effective_api_base):
+            request_options["thinking"] = {"type": "disabled"}
+            if json_mode:
+                request_options["response_format"] = {"type": "json_object"}
 
         while True:
             try:
@@ -77,7 +89,8 @@ class Chat:
                         model=model_gpt4,
                         messages=self.currentSession,
                         temperature=0,
-                        top_p=1.0
+                        top_p=1.0,
+                        **request_options
                     )
                 else:
                     response = openai.ChatCompletion.create(
@@ -87,7 +100,8 @@ class Chat:
                         # model="gpt-4",
                         messages=self.currentSession,
                         temperature=0,
-                        top_p=1.0
+                        top_p=1.0,
+                        **request_options
                     )
                 break
             except openai.error.RateLimitError as e1:

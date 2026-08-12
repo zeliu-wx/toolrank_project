@@ -2,10 +2,11 @@
 
 ## Status
 
-AC1–AC35 were implemented and independently verified before the fuzz-runtime
-follow-up. The design below includes AC36's user-budget campaign boundary in
-addition to the earlier CEGO, compilation, knowledge-update, final-report, and
-runtime-literature contracts.
+AC1–AC36 were implemented and independently verified before the post-audit
+hardening follow-up. The design below includes AC37–AC43's normalized Stage 2
+evidence, full-sample bandwidth, action-conditioned retrieval, reproducible
+packaging, partial execution, explanation validation, and paper-alignment
+boundaries in addition to the earlier contracts.
 
 ## Design Principles
 
@@ -63,9 +64,11 @@ An early terminal Stage 1 result does not construct Stage 2 objects. A Stage 2 `
   same physical corpus, choose one declared canonical scene identity instead
   of duplicating its KDE mass.
 - Remove the call to `filter_scene_pool_to_count_bearing()` from Stage 1.
-- Preserve both normalized `SceneNeighbor.weight = w_D` and raw `kernel_density = p_hat_D`:
+- Preserve normalized `SceneNeighbor.weight = w_D` as the statistical evidence
+  boundary. Raw `kernel_density = p_hat_D` remains diagnostic provenance only:
   - Stage 1 scoring and support mass use normalized `w_D`.
-  - Stage 2 effective sample size may use raw density, as defined below.
+  - Stage 2 `R_hat` and `n_eff` also use normalized `w_D`, so an arbitrary
+    common kernel normalization factor cannot change category eligibility.
 
 ### AST profile artifact build
 
@@ -77,7 +80,7 @@ tracked dataset manifest + configurable corpus root
   -> canonical profile_sources(source/import closure)
   -> emitted per-sample AST profiles + failure ledger
   -> ranges from emitted samples
-  -> seeded bandwidth search over those normalized samples
+  -> deterministic full-sample LOO bandwidth search over those normalized samples
   -> atomic toolcards/contract_profiles.json
   -> strict runtime engine/schema validation
 ```
@@ -300,9 +303,10 @@ Execution already has the required one-source timeout path. Generic SmartBugs
 commands pass `ExecutionSchedule.tool_timeout_seconds` to `$TIMEOUT`, which the
 ConFuzzius and sFuzz wrapper scripts convert to their internal campaign
 duration. Smartian receives the same outer value and uses
-`inner=max(1, outer-3)` to reserve report shutdown. The outer process deadline
-never grows; small allocations may therefore produce a typed timeout rather
-than a promoted report.
+`inner=max(1, floor(outer-6))`, with two bounded startup seconds and four
+report-normalization seconds. The exact floating-point outer process deadline
+never grows or rounds upward; small allocations may therefore produce a typed
+timeout rather than a promoted report.
 
 ### `screc_v2` Stage 1 models
 
@@ -403,32 +407,43 @@ make a complement eligible.
 
 ### Category statistics
 
-For category counts, preserve the current similarity-effective definition but name its two weights explicitly:
+For category counts, use the normalized scene relevance already owned by
+Stage 1:
 
 ```text
-R_hat = sum(p_hat_D * detected_D) / sum(p_hat_D * total_D)
-n_eff = sum(p_hat_D * total_D)
+R_hat = sum(w_D * detected_D) / sum(w_D * total_D)
+n_eff = sum(w_D * total_D)
 ```
 
-Normalized `w_D` remains the evidence relevance weight shown to DACE-RAG. Raw `p_hat_D` is used only to attenuate effective sample size. This distinction must appear in model comments and tests.
+The same normalized `w_D` is the evidence relevance shown to DACE-RAG. Raw
+`p_hat_D` may be retained for KDE audit diagnostics but cannot affect the hard
+`n_eff >= 15` eligibility boundary.
 
 Complement eligibility requires all of:
 
 - non-primary, feasible tool;
 - category `R_hat > 0`;
 - `n_eff >= 15`;
-- when the primary also has positive count-qualified evidence, a Newcombe
+- a reliable primary comparison baseline and a Newcombe
   candidate-minus-primary Recall-gap interval whose lower bound is strictly
   positive;
 - no hard `owner_ineligible` evidence;
 - positive cited support under the existing four-slot evidence rules;
 - known runtime and an executable parallel plan.
 
-If the primary row is missing, non-positive, or below `n_eff = 15`, a positive
-count-qualified candidate is evidence-stronger without inventing a numeric
-primary baseline. Otherwise, a merely positive but weaker candidate is not a
-legal complement. Feasibility or budget failure of the peer that opened search
-does not relax this candidate-level comparison.
+After every hard gate passes, sort legal complements by descending `R_hat`,
+descending `n_eff`, then tool ID and expose at most five per category. Keep
+overflow candidates as typed `NOT_SHORTLISTED` audit rows; they remain visible
+but cannot enter the CEGO legal-candidate set. RuleChecker reconstructs the
+canonical ownership panel from the Stage 2 context, matrix-owned evidence cards,
+and matrix budget; any supplied partition that differs is rejected.
+
+If the primary row is missing or below `n_eff = 15`, search remains useful as a
+diagnostic but no candidate can be proven stronger and therefore none is a
+legal complement. A count-qualified non-positive primary is a reliable zero
+baseline and still requires a strictly positive lower gap bound. Feasibility
+or budget failure of the peer that opened search does not relax this
+candidate-level comparison.
 
 For the primary, one shared decision classifies each required category:
 
@@ -482,30 +497,20 @@ CEGO returns complement proposals, not replacements. Deterministic assembly init
   - no ownerless required category exists.
 - After exhausted CEGO repair attempts, deterministically emit the legal primary-only action. This fallback must itself pass RuleChecker.
 
-### CEGO majority-vote boundary
+### CEGO single-proposal boundary
 
-One logical CEGO generation is a three-sample operation. All samples receive
-the byte-identical typed matrix/prompt and, during repair, the same previous
-RuleChecker verdict. The response boundary decodes each sample independently;
-transport/JSON failures are unusable samples rather than primary-only votes.
+One logical CEGO generation is one structured request at `temperature=0.0`.
+The request receives the typed matrix/prompt and, during repair, the previous
+RuleChecker verdict. The response boundary strictly validates one
+`CegoProposal`; transport or schema failure raises `CegoError`.
 
-For each required category, normalize a usable sample to one ballot:
-
-```text
-PRIMARY_ONLY
-or
-COMPLEMENT(tool, evidence_refs)
-```
-
-The tool choice needs at least two of three configured votes. For a winning
-tool, references are the sorted de-duplicated union from samples that voted for
-that tool; losing tools, omissions, and unusable samples contribute nothing.
-No strict majority becomes `PRIMARY_ONLY` for that category. If all three
-whole responses are unusable, `run_cego` raises `CegoError`; otherwise the
-fixed two-vote threshold is retained. The existing assembler applies
-eligibility/budget constraints to the aggregated raw proposal, and RuleChecker
-remains the only acceptance authority. A rejected aggregate starts another
-complete three-sample vote with the rejection reasons.
+For each required category, the proposal either omits a complement, retaining
+the immutable primary owner, or emits one exact complement tool with evidence
+references. The existing assembler applies eligibility and budget constraints
+to that proposal, and RuleChecker remains the only acceptance authority.
+There is no sampling, ballot, voting, abstention, or cross-response citation
+merge. A rejected certificate starts one fresh single-request round with the
+rejection reasons.
 
 ### Runtime conflict
 
@@ -730,7 +735,33 @@ tools and may not repeat category count fields, rate-like statistical values,
 or guessed rejection reasons. A post-decode semantic check accepts the model
 text unchanged or replaces the whole explanation with a provenance-labelled
 fallback; it never edits prose or changes the checked certificate. Ordinary
-budget wording such as `total runtime` is not mistaken for a count field.
+budget wording such as `total runtime` or a decimal duration is not mistaken
+for a count/rate field.
+
+### Post-audit retrieval, packaging, and lifecycle hardening
+
+DACE constructs one retrieval query per
+`(category, owner_tool, PLAN_COMPOSITION)` cell. The query combines BM25 with
+dense similarity when the embedding boundary is configured. Dense
+unavailability is represented in retrieval diagnostics and falls back to BM25;
+it is not swallowed as an empty evidence result. Matrix construction retains
+the complete primary and feasible-candidate rows, including Stage 1 lineage,
+category evidence, applicability, target constraints/compiler bucket, and
+runtime provenance. CEGO serializes this typed matrix rather than rebuilding a
+filtered prompt-only view.
+
+The release boundary is reproducible from tracked files. The wheel carries the
+default `toolcards` JSON/index data expected by the CLI. The Dockerfile builds
+Smartian from the tracked source tree and places the resulting DLL at the
+container-local runtime path; ignored developer build output and macOS paths
+are not build inputs.
+
+The fuzz campaign remains bounded by the exact user outer deadline. The
+Smartian wrapper derives its inner campaign from that deadline after reserving
+a bounded startup/report-normalization allowance. Execution aggregation keeps
+valid current-run reports when another selected tool fails or times out and
+marks the result partial; it reports total execution failure only when no
+selected tool produced a valid current-run result.
 
 ## Pipeline and CLI Status Contract
 
@@ -741,6 +772,7 @@ PRIMARY_NOT_SELECTED       # inspect Stage 1 status for reason
 NO_EXECUTABLE_PLAN         # analytical primary exists; Stage 2 budget failed
 PLAN_READY                 # checker accepted, execution not requested
 EXECUTED
+EXECUTED_PARTIAL           # at least one usable current-run tool result
 EXECUTION_FAILED
 ```
 
@@ -792,6 +824,49 @@ and bounded; they never silently convert rejected evidence into qualitative
 passages. The default CLI targets an explicit writable KB root and never
 changes packaged artifacts unless the caller imports them as a baseline.
 
+## Local-Private Benchmark Snapshot
+
+The tracked `toolcards` directory remains the reproducible public release
+baseline. A developer checkout may additionally contain the ignored directory
+`toolcards/.private/` with a complete runtime snapshot:
+
+```text
+toolcards/.private/performance_db.json
+toolcards/.private/contract_profiles.json
+toolcards/.private/passage_store.json
+toolcards/.private/vector_index/index.json
+```
+
+These are full runtime snapshots, not independently merged fragments. The
+private Performance KB exactly extends the current tracked Performance KB with
+the local-private evaluation rows recovered from a private recovery source.
+The private profile artifact is rebuilt from a local manifest with the current
+canonical AST profiler and a full leave-one-out KDE fit over public and private
+samples. The private PassageStore exactly retains the public passage prefix and
+appends current-schema qualitative passages. Its vector index exactly retains
+the public vector prefix, appends the corresponding bound embeddings, and binds
+the complete ID order, dimensions, and current store digest.
+
+The ignored private recovery source is provenance only. Runtime passages are
+validated by the current strict schema, omit removed legacy fields, and set
+`linked_evaluation_ids=[]`. They therefore remain qualitative RAG evidence:
+retrieval may cite them, but deterministic applicability, count strength,
+runtime, weighted conflict, and RuleChecker boundaries remain authoritative.
+
+For the normal static path, the engine resolves the complete snapshot once
+before Stage 1.
+If no private runtime file exists, it uses the tracked public knowledge. If the
+complete four-artifact snapshot exists, it selects all four together and emits
+a visible local-private warning. Any missing artifact, stale public prefix,
+Performance/profile delta mismatch, PassageStore/vector order mismatch, vector
+dimension mismatch, or digest mismatch fails closed. An explicit `kb_root`
+dynamic generation remains authoritative and bypasses the entire private
+static snapshot.
+
+The entire `.private` directory is excluded by both Git and Docker. Package
+data rules continue to include only the tracked public root files, so a wheel
+cannot acquire the local snapshot accidentally.
+
 ## Compatibility and Migration
 
 - Breaking output version: `screc_v2`.
@@ -819,7 +894,8 @@ changes packaged artifacts unless the caller imports them as a baseline.
 ### Main risks
 
 - A cross-layer field rename can leave one consumer reconstructing legacy state.
-- Stage 2 raw density and normalized relevance weight can be accidentally interchanged.
+- Stage 2 can accidentally consume diagnostic KDE density instead of the
+  normalized relevance weight owned by the statistical boundary.
 - Additive fusion can duplicate findings unless merge keys and provenance are explicit.
 - Early terminal results can break callers that assume matrix/certificate/checker are always present.
 

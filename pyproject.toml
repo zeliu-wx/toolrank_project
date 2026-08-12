@@ -28,7 +28,8 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["toolrank*"]
+include = ["toolrank*", "toolcards*"]
 
 [tool.setuptools.package-data]
 toolrank = ["config/*.csv", "config/*.json"]
+toolcards = ["*.json", "vector_index/*.json"]

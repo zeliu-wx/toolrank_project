@@ -87,6 +87,7 @@ def test_gptscan_keeps_distinct_inner_request_and_outer_tool_timeouts(
         gptscan_timeout=7,
         openai_api_key="secret-not-for-logs",
         openai_api_base="https://example.invalid",
+        gptscan_model="private-request-model",
         quarantine_root=tmp_path / ".quarantine",
     )
 
@@ -96,6 +97,7 @@ def test_gptscan_keeps_distinct_inner_request_and_outer_tool_timeouts(
     assert request["timeout"] == 11
     assert request["gptscan_timeout"] == 7
     assert request["openai_api_key"] == "secret-not-for-logs"
+    assert request["gptscan_model"] == "private-request-model"
     assert "OPENAI_API_KEY" not in captured["env"]
     assert "secret-not-for-logs" not in " ".join(captured.get("display_command", []))
 
@@ -301,15 +303,16 @@ def _load_smartian_module():
 
 @pytest.mark.parametrize(
     ("outer_seconds", "expected_fuzz_seconds"),
-    [(1, 1), (2, 1), (5, 2), (20, 17)],
+    [(0.25, 1), (5, 1), (7, 1), (30, 24), (30.5, 24)],
 )
 def test_smartian_fuzz_budget_reserves_bounded_report_shutdown_time(
-    outer_seconds: int,
+    outer_seconds: float,
     expected_fuzz_seconds: int,
 ) -> None:
     module = _load_smartian_module()
 
     assert module._smartian_fuzz_timeout_seconds(outer_seconds) == expected_fuzz_seconds
+    assert module.SMARTIAN_LIFECYCLE_RESERVE_SECONDS == 6
 
 
 def test_smartian_engine_uses_reserved_fuzz_budget(
@@ -337,7 +340,7 @@ def test_smartian_engine_uses_reserved_fuzz_budget(
         tmp_path / "out",
         tmp_path / "Smartian.dll",
         "dotnet",
-        5,
+        30,
         {},
         "solc",
         "bin",
@@ -348,4 +351,39 @@ def test_smartian_engine_uses_reserved_fuzz_budget(
     )
 
     assert rc == 0
-    assert commands[0][commands[0].index("-t") + 1] == "2"
+    assert commands[0][commands[0].index("-t") + 1] == "24"
+
+
+def test_smartian_worker_keeps_fractional_outer_deadline_exact(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "Token.sol"
+    target.write_text("contract Token {}", encoding="utf-8")
+    captured: dict = {}
+
+    def fake_process(command, **kwargs):
+        captured.update(kwargs)
+        request = json.loads(kwargs["input_text"])
+        _write_report(Path(request["out_dir"]) / "result.json")
+        return DeadlineProcessResult(returncode=0, elapsed_seconds=0.1)
+
+    monkeypatch.setattr(runner, "run_process_with_deadline", fake_process)
+    rc = runner._run_adapter_with_deadline(
+        "smartian",
+        target,
+        tmp_path / "result",
+        target_root=target,
+        smartbugs_dir=None,
+        timeout=30.5,
+        gptscan_timeout=7,
+        openai_api_key="",
+        openai_api_base="",
+        mapping={},
+        quarantine_root=tmp_path / ".quarantine",
+    )
+
+    request = json.loads(captured["input_text"])
+    assert rc == 0
+    assert captured["timeout_seconds"] == 30.5
+    assert request["timeout"] == 30.5

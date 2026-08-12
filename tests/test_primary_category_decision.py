@@ -170,6 +170,48 @@ def test_search_without_qualified_complement_retains_primary_explicitly() -> Non
     assert panel.primary_only_reason
 
 
+def test_under_evidenced_primary_opens_search_but_exposes_no_legal_complement() -> None:
+    context = stage2_context(
+        primary_rate=0.2,
+        primary_n_eff=14.999,
+        peer_rate=0.8,
+        peer_n_eff=100.0,
+    )
+    limit = budget()
+    matrix = build_action_evidence_matrix(context, limit)
+    panel = matrix.ownership_panel["reentrancy"]
+
+    assert panel.primary_decision.status == "SEARCH_REQUIRED"
+    assert panel.assignment_status == "PRIMARY_ONLY_NO_COMPLEMENT"
+    assert panel.primary_only_reason == "PRIMARY_COMPARISON_BASELINE_UNRELIABLE"
+    assert panel.eligible_candidates == []
+    candidate = next(item for item in panel.rejected_candidates if item.tool == "b")
+    assert candidate.strength.primary_baseline_reliable is False
+    assert candidate.strength.evidence_stronger is False
+
+    payload = json.loads(
+        _prompt_payload(context, matrix, None, w_recall=0.5, w_precision=0.5)
+    )
+    assert payload["required_categories"][0]["eligible_candidates"] == []
+
+    certificate = assemble_decision(
+        {
+            "complements": [
+                {
+                    "category": "reentrancy",
+                    "tool": "b",
+                    "evidence_refs": ["ev_rcov_b_reentrancy"],
+                }
+            ]
+        },
+        context,
+        matrix,
+        limit,
+    )
+    assert certificate.category_assignments[0].owner_tools == ["a"]
+    assert check_decision(certificate, context, matrix).status == "ACCEPT"
+
+
 def _real_arithmetic_context() -> Stage2EvidenceContext:
     category = "arithmetic"
     rows = [

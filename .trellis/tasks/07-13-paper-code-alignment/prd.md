@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make the released LAKES implementation faithfully execute the effective, uncommented workflow in `/Users/liuze/Downloads/LAKES/main_revised.tex`, so the paper, CLI-visible trace, execution plan, and fused report describe one coherent algorithm.
+Make the released LAKES implementation faithfully execute the effective, uncommented workflow in `main_revised.tex`, so the paper, CLI-visible trace, execution plan, and fused report describe one coherent algorithm.
 
 ## Source of Truth and Constraints
 
@@ -54,10 +54,13 @@ The paper initializes each developer-required category owner set to `{t^star}`, 
 - When the primary has count-qualified positive category evidence, require a
   complementary tool to have a statistically credible positive Recall gap over
   that primary; positive Recall alone is not evidence that the complement is
-  stronger. Missing, under-evidenced, or non-positive primary evidence may
-  still be complemented by a count-qualified positive candidate because no
-  reliable positive primary baseline exists.
+  stronger. When the primary row is missing or under-evidenced, no candidate
+  may be labelled stronger because the comparison baseline is not reliable.
+  A non-positive but count-qualified primary remains a usable baseline and a
+  positive count-qualified candidate must still pass the shared statistical
+  gap test.
 - Require accepted complements to pass the finalized cited-evidence predicate, feasibility checks, and runtime checks in addition to the `n_eff` gate.
+- After all hard eligibility checks, rank complements by descending `R_hat`, descending `n_eff`, then tool ID, and expose at most five legal candidates per category. Preserve overflow rows as explicitly not shortlisted so the audit matrix remains complete. RuleChecker must rebuild this canonical partition from the original Stage 2 context, matrix-owned evidence, and budget rather than trust a supplied panel.
 - Missing, weak, rejected, or exhausted complement evidence must retain `t^star`; it must not produce an ownerless category or globally stop the plan.
 - Ensure the action matrix and decision certificate reference the same legal primary action ID.
 - Keep runtime budget out of Stage 1 scoring. If `t^star` alone exceeds the budget, Stage 2 must return `NO_EXECUTABLE_PLAN`, preserve the analytical primary, avoid substituting a lower-ranked tool, and perform no execution.
@@ -353,31 +356,23 @@ quantitative evaluation rows (`main_revised.tex:309,341,351-355,377`).
 - Add cross-layer regressions proving all values survive Stage 1 packet ->
   Stage 2 matrix -> CEGO JSON -> RuleChecker without changing `t^star`.
 
-### R17 — Low-temperature CEGO majority voting
+### R17 — Low-temperature CEGO single proposal
 
-Every CEGO generation attempt must implement the paper's `k`-sample majority
-vote before deterministic certificate assembly and RuleChecker validation.
+Every CEGO generation round must make one structured model request before
+deterministic certificate assembly and RuleChecker validation.
 
-- Use one code-owned odd sample count, initially `k=3`, and the existing
-  low-temperature structured-output boundary. One logical CEGO attempt must
-  collect three independent model responses to the same prompt and checker
-  feedback.
-- Canonicalize each response into per-category ballots. A ballot is either one
-  exact complement tool ID or an explicit primary-only choice. A complement is
-  retained only when the same tool receives a strict majority; a tie,
-  disagreement, or majority primary-only vote retains the primary.
-- Malformed/failed model responses abstain and never lower the fixed two-vote
-  threshold or count as a model choice. If all three samples are unusable,
-  raise `CegoError`; otherwise a category without two matching valid votes
-  remains primary-only.
-- Majority aggregation may select only model-emitted tools and citations. For
-  a winning tool, it takes the deterministic sorted union of references from
-  samples that voted for that tool; it may not borrow losing-tool references,
-  invent references, or pre-filter invalid references before the independent
-  RuleChecker sees them.
-- Every bounded repair iteration performs a fresh `k`-sample vote using the
-  previous RuleChecker reasons. Only the aggregated certificate is accepted,
-  and the final plan must still pass the unchanged RuleChecker.
+- Use the existing `temperature=0.0` structured-output boundary. One
+  `run_cego` invocation makes exactly one logical model request.
+- Strictly validate the response as `CegoProposal` and pass that proposal
+  directly to `assemble_decision`. A category omitted by the proposal retains
+  the immutable primary owner.
+- CEGO has no application-level sampling, voting, ballot, abstention, citation
+  union across responses, or proposal aggregation.
+- A request failure or malformed response raises `CegoError`; it is never
+  reinterpreted as a primary-only model decision.
+- Every bounded repair iteration performs one fresh request using the previous
+  RuleChecker reasons. The final plan must pass the unchanged RuleChecker, and
+  repair exhaustion retains the checked primary-only fallback.
 
 ### R18 — One shared Stage 3 compilation boundary
 
@@ -571,6 +566,96 @@ hard-coded name list.
 - Measured Stage 3 elapsed time remains fresh report metadata and must not be
   written back as a historical completion estimate.
 
+### R23 — Post-audit reproducibility and release hardening
+
+- Build `n_eff` from normalized scene relevance weights so a common KDE
+  normalization constant cannot change the `n_eff >= 15` decision. Keep
+  `R_hat` on the same normalized-weight boundary.
+- Fit the shipped KDE bandwidth by leave-one-out likelihood over every emitted
+  benchmark profile. A fixed subset may be used only by an explicitly labelled
+  development approximation, never by the published artifact.
+- Construct DACE retrieval separately for every
+  `(category, owner_tool, PLAN_COMPOSITION)` query. Combine lexical BM25 and
+  dense similarity when embeddings are available, retain a visible lexical
+  fallback when they are not, and never silently erase retrieval failures.
+- Preserve the complete relevant matrix row for the primary and each feasible
+  candidate through CEGO, including Stage 1 scores/weights, category evidence,
+  applicability, target constraints, compiler bucket, and runtime provenance.
+- A fresh wheel must contain the default `toolcards` knowledge files. A fresh
+  Docker build must compile and contain Smartian without relying on ignored
+  local build output or a macOS host path.
+- Keep the user budget as Smartian's hard outer deadline while reserving enough
+  bounded lifecycle time to normalize and promote a completed report. When at
+  least one selected tool succeeds, preserve and fuse that current-run output
+  under an honest partial execution status instead of reducing the whole run to
+  an undifferentiated failure.
+- Explanation validation must reject statistical audit values by their
+  statistical context, not every ordinary decimal. Decimal budget prose such
+  as `0.5 minutes` is valid qualitative explanation text.
+- Keep the paper honest about the implementation: only adapters with declared
+  shared-artifact support consume the one compilation bundle, fuzz campaigns
+  are user-budget driven, and dataset-level compiler/LOC runtime evidence is a
+  documented proxy rather than a nonexistent fine-grained cell.
+- Do not change the existing benchmark performance/count observations and do
+  not alter the optional RuleChecker-bypass behavior in this follow-up.
+
+### R24 — Local-private benchmark retention without release leakage
+
+Local-private evaluation slices are developer knowledge, not release
+knowledge. Removing their identities from tracked release files must not make
+the developer checkout stop using the complete private overlay.
+
+- Keep the tracked `toolcards/performance_db.json` and
+  `toolcards/contract_profiles.json` free of private evaluation rows and source
+  metadata.
+- Keep one ignored local-private snapshot containing the current tracked
+  knowledge plus the private Performance-KB extension and its canonical AST
+  profiles. The private recovery source is not a runtime data source.
+- A normal recommendation from this source checkout must automatically use a
+  complete local-private snapshot when it is present. The released wheel,
+  Docker image, and checkouts without that snapshot must continue to use only
+  the tracked public knowledge.
+- Treat the performance/profile pair as one consistency boundary. A partial
+  local-private snapshot must fail clearly instead of silently mixing private
+  performance rows with public profiles or vice versa.
+- Build the private profile snapshot with the current canonical AST engine and
+  full-sample KDE fit. Do not revive the legacy `source_scanner_v1` profile
+  artifact from the private branch.
+- Explicit dynamic-generation selection through `kb_root` remains authoritative
+  and must not be silently replaced by the local-private static snapshot.
+- Exclude all local-private artifacts from Git, wheel, and Docker build context,
+  and expose a runtime warning when the local-private snapshot is active.
+
+### R25 — Retain hand-curated local RAG knowledge
+
+The historical private knowledge layer contains hand-curated scheduling
+passages and bound embeddings. They must remain available to local
+recommendation without entering the public release knowledge.
+
+- Keep the tracked public `toolcards/passage_store.json` and
+  `toolcards/vector_index/index.json` unchanged at their published boundary.
+- Extend the ignored local-private snapshot with a current-schema
+  `passage_store.json` that exactly extends the public passage prefix, plus a
+  vector index that exactly extends the public embedding prefix in the same
+  passage order.
+- Retain the original material only in the ignored private recovery source,
+  and migrate only the runtime copy through the current strict `Passage`
+  schema. Removed legacy fields must not be reintroduced into production
+  models.
+- Mark every private-only passage as explicitly qualitative with no linked
+  quantitative evaluation IDs. They may be retrieved and cited, but cannot
+  fabricate benchmark weight or bypass Stage 2 eligibility, statistical
+  strength, runtime, evidence, or RuleChecker gates.
+- Treat Performance KB, profiles, PassageStore, and vector index as one static
+  private snapshot. Missing halves, stale public prefixes, passage/vector
+  order mismatch, embedding dimension mismatch, or digest mismatch must fail
+  before recommendation.
+- Normal source-checkout recommendation uses the private PassageStore/index
+  when the complete snapshot exists. Explicit `kb_root` generations remain
+  authoritative and bypass every static private artifact.
+- Git, wheel, and Docker exclusions cover the source passage file, merged
+  store, and vector index together.
+
 ## Acceptance Criteria
 
 - [x] AC1: Stage 1 selects exactly the highest-scoring feasible tool with support mass at least `0.2`, using the paper tie-break order.
@@ -613,10 +698,10 @@ hard-coded name list.
   rows, and capability-passage provenance reach CEGO through typed evidence;
   RuleChecker uses the same applicable relevance weights for deterministic
   conflict resolution, while unlinked qualitative evidence remains unweighted.
-- [x] AC31: Every CEGO attempt performs three low-temperature structured
-  samples, accepts only a strict per-category tool majority, merges citations
-  only from votes for the winner, repeats the vote on repair, and sends only
-  the aggregate through RuleChecker; unusable or unresolved votes retain a
+- [x] AC31: Every CEGO round performs one low-temperature structured request,
+  strictly validates and directly assembles that proposal, then sends the
+  certificate through RuleChecker; request/schema failure is explicit,
+  Checker rejection starts one fresh request, and bounded exhaustion retains a
   checked primary-only plan.
 - [x] AC32: When Smartian or Vandal is selected for Solidity source, Stage 3
   performs one canonical project compilation before tool workers, passes one
@@ -642,6 +727,35 @@ hard-coded name list.
   campaign allocation without historical completion-time evidence; the same
   allocation reaches Stage 2, RuleChecker, DACE/CEGO, plan accounting, and the
   real runner while Stage 1 and historical runtime provenance remain unchanged.
+- [x] AC37: `R_hat` and `n_eff` use normalized scene relevance and the strict
+  stronger-than-primary gate fails closed when no reliable primary comparison
+  baseline exists.
+- [x] AC38: The published bandwidth is selected by full-sample leave-one-out
+  likelihood over all emitted profiles and its metadata/digests replay exactly.
+- [x] AC39: Action-conditioned BM25+dense retrieval and the complete typed
+  primary/candidate matrix reach CEGO, with explicit lexical fallback
+  diagnostics when dense retrieval is unavailable.
+- [x] AC40: Fresh wheel and Docker builds contain the default knowledge files
+  and a built Smartian runtime without untracked files or host-path dependency.
+- [x] AC41: Smartian respects the unchanged hard user deadline, and a mixed
+  execution with at least one valid tool report yields a usable, honestly
+  partial fused result.
+- [x] AC42: Qualitative explanation validation accepts ordinary decimal budget
+  values while continuing to reject statistical audit fields and rates.
+- [x] AC43: Effective paper prose describes the implemented conditional shared
+  compilation, runtime proxy, and budget-driven fuzz semantics without
+  overstating them.
+- [x] AC44: The source checkout automatically uses one complete ignored
+  local-private Performance/profile snapshot, while tracked release files,
+  wheels, Docker contexts, and explicit dynamic generations remain private-data
+  free; incomplete snapshots fail closed.
+- [x] AC45: Local recommendation retrieves current-schema private qualitative
+  passages from a bound ignored PassageStore/vector snapshot, while the tracked
+  public store/index remain unchanged and private prose cannot acquire
+  quantitative weight or bypass deterministic scheduling gates.
+- [x] AC46: Each Stage 2 category exposes at most the five highest-ranked fully
+  eligible complements; under-evidenced and overflow candidates consume no
+  legal slot but remain visible in the typed audit matrix.
 
 ## Out of Scope
 

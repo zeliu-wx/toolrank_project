@@ -5,7 +5,7 @@ LAKES recommends and optionally runs smart-contract vulnerability analyzers for 
 Its scheduling flow is:
 
 1. Stage 1 computes Gower-KDE benchmark weights, ranks feasible tools by overall recall/precision, applies the benchmark-support threshold `tau = 0.2`, and directly fixes the highest-ranked tool as the primary `t*`.
-2. Stage 2 keeps `t*` as the owner of every requested category. It opens complement search only when the primary category evidence is missing, non-positive, below `n_eff = 15`, or credibly weaker than a count-qualified peer. A complement needs positive recall-side evidence and `n_eff >= 15`.
+2. Stage 2 keeps `t*` as the owner of every requested category. It opens complement search only when the primary category evidence is missing, non-positive, below `n_eff = 15`, or credibly weaker than a count-qualified peer. A complement needs positive recall-side evidence, `n_eff >= 15`, and a statistically credible positive gap over a count-qualified primary baseline. Missing or under-evidenced primary data can trigger diagnostics but cannot prove a complement stronger.
 3. Stage 3 runs the selected tools concurrently for each contract, processes directory contracts sequentially, and fuses findings with their tool provenance. Findings sharing a non-empty `(category, location)` are grouped, while conflicting severity, confidence, or explanation values are retained and marked.
 
 There is no primary-tool certification or candidate-primary state. Low category support never replaces `t*`. If no complement qualifies, or decision repair is exhausted, the checked fallback is the primary-only plan.
@@ -35,10 +35,11 @@ lakes-profile-builder \
 ```
 
 The builder attempts each safe Solidity file with its in-corpus import
-closure, records exact compiler and skip provenance, fits ranges and bandwidth
-from the emitted AST samples, and replaces the output atomically. Runtime scene
-loading accepts only the matching versioned AST artifact; it never refits a
-legacy artifact.
+closure, records exact compiler and skip provenance, derives ranges from the
+emitted AST samples, fits the published bandwidth by full-sample leave-one-out
+likelihood over those same samples, and replaces the output atomically. Runtime
+scene loading accepts only the matching versioned AST artifact; it never refits
+a legacy artifact.
 
 For pragma-constrained sources, profiling tries only intersecting canonical
 compiler buckets in `0.4.x` through `0.8.x` order. A source without a pragma
@@ -47,20 +48,25 @@ owns the recorded Gower bucket and profiling compiler. Rewrites occur only in
 the private profiling copy; original constraints, feasibility, and execution
 compiler selection remain unchanged.
 
-Configure your OpenAI-compatible chat endpoint:
+LAKES chat calls default to the official DeepSeek API at
+`https://api.deepseek.com` with model `deepseek-v4-flash`. Only the credential
+is required for that default:
 
 ```bash
-export LAKES_OPENAI_BASE_URL="https://your-llm-endpoint/v1"
-export LAKES_OPENAI_MODEL="your-model"
-export OPENAI_API_KEY="your-api-key"
+export DEEPSEEK_API_KEY="your-deepseek-api-key"
 ```
+
+For another OpenAI-compatible chat provider, set `LAKES_OPENAI_BASE_URL`,
+`LAKES_OPENAI_MODEL`, and `OPENAI_API_KEY`. The legacy
+`TOOLRANK_OPENAI_BASE_URL` and `TOOLRANK_OPENAI_MODEL` aliases remain supported.
 
 ## Dynamic knowledge-base updates
 
 The update command requires a local MinerU installation and its models, an
-OpenAI-compatible chat endpoint, and an embedding endpoint. Pass the ToolCard
-and baseline directory explicitly because installed wheels do not bundle the
-repository's root-level `toolcards/` directory.
+OpenAI-compatible chat endpoint, and an embedding endpoint. Fresh wheels bundle
+the default read-only `toolcards` knowledge files used by recommendation.
+Ingestion still requires `--toolcards-dir` so the baseline source is explicit
+and the writable generation remains under the separate `--kb-root`.
 
 ```bash
 lakes-kb-update ingest paper.pdf \
@@ -75,10 +81,11 @@ does not create or replace `kb_current.json`. Remove it only when the proposed
 generation is ready to publish.
 
 MinerU is invoked locally as `mineru -p PDF -o DIR`; use `--mineru-command` if
-it is not on `PATH`. Chat extraction uses `LAKES_OPENAI_BASE_URL`,
-`LAKES_OPENAI_MODEL`, and `OPENAI_API_KEY`. The default SiliconFlow embedding
-adapter reads `embeddingAPI`, `SILICONFLOW_API_KEY`, or `QWEN_API_KEY`, plus
-optional `SILICONFLOW_BASE_URL` and `SILICONFLOW_EMBEDDING_MODEL`. For another
+it is not on `PATH`. Chat extraction uses the same official DeepSeek defaults
+and reads `DEEPSEEK_API_KEY`; the generic chat overrides above remain
+available. The separate default SiliconFlow embedding adapter reads
+`embeddingAPI`, `SILICONFLOW_API_KEY`, or `QWEN_API_KEY`, plus optional
+`SILICONFLOW_BASE_URL` and `SILICONFLOW_EMBEDDING_MODEL`. For another
 OpenAI-compatible embedding endpoint, pass `--embedding-base-url` and
 `--embedding-model`; its credential is read from `OPENAI_API_KEY`. API keys are
 not accepted as command-line options.
@@ -105,7 +112,7 @@ Runtime evidence comes only from historical observations in `toolcards/performan
 
 Tools whose ToolCard declares `d8_mode=fuzz` use a separate user-controlled campaign allocation instead of a fabricated historical completion time. The default campaign is the per-tool timeout derived from the runtime budget; `--tool-timeout-sec` sets the per-input campaign explicitly. Concurrent fuzzers each receive the full allocation, directory inputs multiply it sequentially, and the unchanged outer deadline is passed to both execution paths. Historical and literature evidence remains descriptive and cannot affect Stage 1 or replace the checked campaign.
 
-The top-level result status is one of `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, or `EXECUTION_FAILED`. Objects from later stages are absent after an earlier terminal status.
+The top-level result status is one of `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, `EXECUTED_PARTIAL`, or `EXECUTION_FAILED`. `EXECUTED_PARTIAL` preserves valid current-run reports when at least one selected tool succeeds and another fails or times out. Objects from later stages are absent after an earlier terminal status.
 
 Run selected analyzers too:
 
@@ -122,15 +129,23 @@ Outputs are written under `LAKES_out/<contract>/`:
 
 ## Docker
 
-Docker includes the analyzer runtime and compiler setup.
+Docker includes the analyzer runtime and compiler setup. A fresh image builds
+the pinned Smartian revision from tracked source and does not consume a local
+`docker/vendor/smartian/build/` directory or a host-specific path.
+The outer image and Smartian `.NET` runtime follow the native build
+architecture. On ARM hosts, the image also carries the x86-64 runtime libraries
+needed by official Linux `solc`; SmartBugs analyzer images remain `linux/amd64`
+and use Docker's host platform emulation. The official DeepSeek credential also
+supplies GPTScan by default. On official DeepSeek hosts, `DEEPSEEK_API_KEY`
+takes precedence over the generic `OPENAI_API_KEY`; custom compatible hosts use
+only `OPENAI_API_KEY`.
 
 ```bash
 docker build -t lakes .
 docker run --rm --privileged \
   -v "$PWD/out:/work/out" \
   -v "$PWD/path/to/Contract.sol:/work/Contract.sol:ro" \
-  -e OPENAI_API_KEY="$OPENAI_API_KEY" \
-  -e LAKES_OPENAI_BASE_URL="$LAKES_OPENAI_BASE_URL" \
-  -e LAKES_OPENAI_MODEL="$LAKES_OPENAI_MODEL" \
+  -e DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
+  -e OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
   lakes recommend /work/Contract.sol --execute --emit summary --results-root /work/out
 ```

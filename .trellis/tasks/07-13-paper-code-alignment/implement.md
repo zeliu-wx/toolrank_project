@@ -2,7 +2,7 @@
 
 ## Success Definition
 
-The task is complete only when the implementation satisfies AC1–AC36 in
+The task is complete only when the implementation satisfies AC1–AC45 in
 `prd.md`, all new regression tests pass, the complete tracked test suite passes,
 and legacy Stage 1 certification semantics are absent from the default
 pipeline. Preserve every existing Performance-DB metric/count edit; only the
@@ -19,7 +19,7 @@ phases completed; they are not outstanding work.
 - Add or update a failing regression test before changing the corresponding behavior.
 - Treat the checkpoints as one ordered cross-layer migration, not independently releasable commits. Focused tests must pass before advancing, and the complete runtime must pass at the final cutover.
 - Do not add a `screc_v1` converter, dual-version consumer, or compatibility facade to make an intermediate checkpoint look releasable.
-- Touch only files needed for AC1–AC36. Do not reformat or retune unrelated code or data.
+- Touch only files needed for AC1–AC45. Do not reformat or retune unrelated code or data.
 - Do not commit, reset, or discard any pre-existing worktree change.
 - Use historical tests from `c875f03^` only as reference material. Do not restore certification-era expectations.
 
@@ -86,8 +86,12 @@ The checkpoint boundary is the Stage 1 packet returned by the engine. If it fail
 
 ### Tests first
 
-- [ ] Add exact category-statistic tests for `R_hat` and `n_eff` using raw kernel density, distinct from normalized `w_D`.
+- [ ] Add exact category-statistic tests for `R_hat` and `n_eff` using
+  normalized `w_D`; raw KDE density remains diagnostic provenance only.
 - [ ] Add complement-eligibility tests for `n_eff` below, equal to, and above `15`.
+- [x] Add a seven-candidate regression proving the fully eligible slate is
+  ranked and capped at five, under-evidenced candidates consume no slot, and a
+  proposal naming the sixth candidate is ignored.
 - [ ] Add tests proving low or missing primary category evidence sets `under_evidenced` but never removes or changes `t^star`.
 - [ ] Add tests for hard owner-ineligible evidence, no positive support, infeasible tools, missing runtime, and over-budget complements.
 - [ ] Add tests proving no required categories produces a primary-only plan after runtime validation.
@@ -97,9 +101,15 @@ The checkpoint boundary is the Stage 1 packet returned by the engine. If it fail
 
 - [ ] Introduce `Stage2EvidenceContext` and build it only after `Stage1Status.PRIMARY_SELECTED`.
 - [ ] Refactor `toolrank/assignment_evidence.py`, `toolrank/evidence_packet.py`, `toolrank/category_candidates.py`, `toolrank/ownership_evidence.py`, and category-coverage helpers so category counts are owned exclusively by Stage 2.
-- [ ] Name normalized relevance and raw density fields explicitly at model boundaries; use only raw density in `R_hat`/`n_eff` and only normalized relevance in displayed/cited evidence weight.
+- [ ] Name normalized relevance and raw density fields explicitly at model
+  boundaries; use normalized relevance in `R_hat`/`n_eff` and displayed/cited
+  evidence, while keeping raw density diagnostic-only.
 - [ ] Preserve retained CI and peer-gap values as diagnostics only. Remove any code path where they gate primary ownership or reorder the Stage 1 primary.
 - [ ] Implement one complement-eligibility predicate containing feasibility, `R_hat > 0`, `n_eff >= 15`, evidence, scope, known runtime, and parallel-budget checks.
+- [x] Apply one shared five-candidate limit after those hard gates, retain
+  overflow candidates as typed non-legal audit rows, and reuse the same limit
+  in the Stage 2 focus projection. Rebuild the canonical panel in RuleChecker
+  so a forged partition cannot promote an overflow candidate.
 - [ ] Initialize every developer-required category owner list with `t^star`; append at most one accepted complement.
 
 ### Verification gate
@@ -188,7 +198,9 @@ The checkpoint boundary is `CompositionPlan` → execution → `FusedReport`. Re
 
 ### Tests first
 
-- [ ] Add `PipelineResult` tests for `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, and `EXECUTION_FAILED` with correct optional later-stage fields.
+- [ ] Add `PipelineResult` tests for `PRIMARY_NOT_SELECTED`,
+  `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, `EXECUTED_PARTIAL`, and
+  `EXECUTION_FAILED` with correct optional later-stage fields.
 - [ ] Add CLI summary and JSON snapshot tests for an early Stage 1 terminal, an unexecutable primary, a primary-only plan, and an additive composition.
 - [ ] Add a representative offline CLI smoke test with fixture inputs and mocked external execution.
 
@@ -446,23 +458,22 @@ git diff --check
 - [x] Run focused tests, the complete tracked suite, compileall, CLI help, and
   `git diff --check` without modifying `toolcards/performance_db.json`.
 
-## Checkpoint 17 — CEGO three-sample majority voting (AC31)
+## Checkpoint 17 — CEGO single structured proposal (AC31)
 
-- [x] Add failing tests for exactly three calls per logical attempt, an exact
-  2/3 complement ballot, a 2/3 primary-only ballot, tool/citation disagreement,
-  one malformed sample, all samples unusable, and deterministic ballot ordering.
-- [x] Add a repair-loop regression proving every repair is a fresh three-call
-  vote with identical prior checker reasons and only the aggregate reaches the
-  real RuleChecker.
-- [x] Centralize the odd vote count and canonical ballot representation in
-  `toolrank/cego.py`; retain temperature zero at the OpenAI-compatible boundary.
-- [x] Union citations only across samples that voted for the winning tool,
-  sort/de-duplicate them, and never pre-filter invalid refs. Feed that aggregate
-  into the existing `assemble_decision`, then preserve the current checked
-  primary-only behavior for transport failure and repair exhaustion.
+- [x] Test exactly one request per `run_cego` invocation, direct use of a valid
+  proposal, explicit request failure, malformed-response failure, and
+  temperature zero.
+- [x] Add a repair-loop regression proving every Checker rejection starts one
+  fresh request with the prior reasons and only the resulting certificate
+  reaches RuleChecker.
+- [x] Remove the sample count, ballot representation, vote threshold,
+  aggregation, abstention, and cross-response citation union from
+  `toolrank/cego.py`.
+- [x] Preserve the existing assembler, RuleChecker, and checked primary-only
+  behavior for request failure and repair exhaustion.
 
 ```bash
-python3 -m pytest -q tests/test_cego_majority.py tests/test_repair_fallback.py
+python3 -m pytest -q tests/test_cego_single_request.py tests/test_repair_fallback.py
 python3 -m compileall -q toolrank tests
 ```
 
@@ -532,9 +543,11 @@ git diff --check
   Newcombe Recall-gap definition as the primary category diagnostic.
 - [ ] Reject a feasible, count-qualified, budget-valid candidate when its
   credible Recall gap over a count-qualified positive primary is not positive.
-- [ ] Preserve complement search for missing, non-positive, or under-evidenced
-  primary rows, where a positive count-qualified candidate is
-  evidence-stronger without fabricating a primary rate.
+- [ ] Preserve diagnostic complement search for missing or under-evidenced
+  primary rows, but fail the ownership strength gate because no candidate can
+  be proven stronger without a reliable primary baseline. Treat a
+  count-qualified non-positive primary as a real zero baseline and require the
+  same positive lower gap bound.
 - [ ] Make the ownership panel, CEGO candidate payload, deterministic assembly,
   and RuleChecker consume the same strength result.
 - [ ] Add the real arithmetic regression: infeasible Osiris may expose a
@@ -657,6 +670,108 @@ git diff --check
 git diff --check
 ```
 
+## Checkpoint 24 — Post-audit reproducibility and release hardening (AC37–AC43)
+
+- [x] Put `R_hat` and `n_eff` on the normalized-`w_D` boundary and add a
+  common-scale invariance regression. Keep the strict stronger-than-primary
+  predicate fail-closed when the primary comparison baseline is unreliable.
+- [x] Change bandwidth selection from the seeded 300-target approximation to
+  deterministic full-sample leave-one-out likelihood. Regenerate only the
+  bandwidth-linked profile metadata/artifact fields required by that fit.
+- [x] Implement per-cell action-conditioned BM25+dense DACE retrieval with
+  explicit dense-unavailable diagnostics and a deterministic lexical fallback.
+  Serialize the complete typed primary/candidate matrix into CEGO.
+- [x] Package the default `toolcards` data in the wheel. Build Smartian from
+  tracked sources in Docker and remove any dependence on ignored local build
+  products or macOS absolute paths.
+- [x] Preserve the exact fuzz outer deadline while reserving bounded Smartian
+  lifecycle/report time. Aggregate mixed success/failure/timeout runs as usable
+  partial execution and retain their valid current-run fused findings.
+- [x] Make explanation validation context-sensitive so ordinary decimal
+  durations are accepted while statistical audit values/rates remain rejected.
+- [x] Update effective paper prose for conditional shared compilation,
+  dataset-level runtime proxies, and user-budget fuzz campaigns.
+- [x] Do not modify `toolcards/performance_db.json` observations/counts and do
+  not change the optional RuleChecker-bypass path.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_stage2_evidence.py \
+  tests/test_stage2_eligibility.py tests/test_dace_rag_v2.py \
+  tests/test_cego.py tests/test_scene_kde.py tests/test_profile_builder.py \
+  tests/test_execution_plan_v2.py tests/test_runner_outer_timeout.py \
+  tests/test_final_report.py
+.venv/bin/python -m pytest -q
+.venv/bin/python -m compileall -q toolrank tests docker/runners
+.venv/bin/python -m build
+git diff --check
+git diff --exit-code -- toolcards/performance_db.json
+```
+
+## Checkpoint 25 — Local-private benchmark runtime snapshot (AC44)
+
+- [x] Add focused tests for absent, complete, and incomplete
+  `toolcards/.private` pairs; prove that the complete pair is selected together
+  and an incomplete pair fails closed.
+- [x] Keep explicit `kb_root` generations authoritative and verify they do not
+  load the local-private static Performance KB.
+- [x] Add `toolcards/.private/` to both Git and Docker exclusions and verify it
+  is absent from a fresh wheel and Docker build context.
+- [x] Remove local-private source identities and paths from the public profile
+  manifest and profile metadata.
+- [x] Recover the local-private Performance-KB extension from the private
+  recovery source, merge it into a full ignored local snapshot, and validate
+  the current schema without changing tracked performance metrics.
+- [x] Build a current `contract_profiles_v2` local-private artifact over the
+  public datasets plus all private slices. Verify sample counts, full-fit
+  bandwidth metadata, profile validation, and exact Performance/profile scene
+  identity coverage.
+- [x] Run a representative recommendation twice: public-only in an isolated
+  toolcards copy and local-private in the developer checkout. Confirm the
+  private run exposes the additional private scene identities and announces the
+  private snapshot.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_private_toolcards.py \
+  tests/test_release_packaging.py tests/test_pipeline_status.py
+.venv/bin/python -m compileall -q toolrank tests
+git check-ignore -v toolcards/.private/performance_db.json \
+  toolcards/.private/contract_profiles.json
+git ls-files toolcards/.private
+git diff --check
+```
+
+## Checkpoint 26 — Local-private hand-curated RAG snapshot (AC45)
+
+- [x] Recover the hand-curated passages from the private recovery source,
+  preserve that source locally, and create current-schema runtime copies with
+  explicit empty quantitative links.
+- [x] Recover the corresponding bound embeddings and prove the public
+  passage/embedding prefixes are byte-equivalent before composing the private
+  artifacts.
+- [x] Extend static snapshot resolution to select Performance, profiles,
+  PassageStore, and vector index together. Validate production schemas, exact
+  public extension, passage order, vector dimensions, and store digest.
+- [x] Make static recommendation default to the private PassageStore/index when
+  active; keep explicit `kb_root` authoritative.
+- [x] Add regressions for public fallback, complete private selection, missing
+  RAG half, stale public passage prefix, passage/vector identity mismatch,
+  digest mismatch, explicit dynamic bypass, and qualitative-only private links.
+- [x] Verify BM25 can retrieve each relevant private passage without an
+  embedding credential and that dense index binding remains valid.
+- [x] Verify tracked public passage/index hashes remain unchanged and no private
+  RAG file enters Git, wheel, or Docker context.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_private_toolcards.py \
+  tests/test_dace_retrieval.py tests/test_release_packaging.py
+.venv/bin/python -m compileall -q toolrank tests
+git diff --exit-code -- toolcards/passage_store.json \
+  toolcards/vector_index/index.json
+git check-ignore -v toolcards/.private/passage_store.json \
+  toolcards/.private/vector_index/index.json
+git diff --check
+```
+
 ## Expected File Scope
 
 Primary implementation files:
@@ -690,5 +805,7 @@ Primary implementation files:
 Conditional files may be changed only if a failing boundary test proves they
 consume the migrated contract. `toolcards/performance_db.json` may contain only
 the approved runtime unit/basis metadata and independently sourced runtime
-observations on top of the preserved user diff. Unrelated knowledge bases,
-parsers, analyzer adapters, and paper sources remain excluded.
+observations on top of the preserved user diff. Effective prose in
+`main_revised.tex` is the AC43 paper-alignment
+boundary. Unrelated knowledge bases, parsers, analyzer adapters, and other paper
+sources remain excluded.

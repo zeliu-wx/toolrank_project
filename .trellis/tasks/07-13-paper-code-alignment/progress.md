@@ -255,10 +255,11 @@ fallback and coverage result were superseded by the reliability work below.
   TERM/KILL `PermissionError` cannot escape, direct-child fallback is bounded,
   and reap/pipe-drain operations each have a `0.2s` limit. A hard timeout now
   returns typed `124/TIMEOUT` without a lingering worker or Smartian process.
-- Smartian retains the scheduler-owned outer deadline but runs its integer
-  fuzzer with `max(1, outer-3)` seconds. The three-second reserve rounds up the
-  measured 2.2-second shutdown/report-normalization cost; small budgets remain
-  explicit best-effort typed-timeout cases rather than receiving hidden grace.
+- **Superseded by AC41 (historical):** this verification used the then-current
+  `max(1, outer-3)` Smartian inner limit. AC41 replaced that obsolete
+  three-second reserve with the current bounded six-second
+  startup/report-normalization allowance while preserving the exact outer
+  deadline.
 - Shared-artifact `consumed` is now based on an exact routed Solidity invocation
   that returned zero and produced a valid current-run report. Failure-only,
   timeout-only, cleanup-failure, and `NOT_RUN` histories remain false. Mixed
@@ -436,3 +437,196 @@ fallback and coverage result were superseded by the reliability work below.
 - AC36 and Checkpoint 23 are complete. No Performance-KB observation,
   literature arithmetic, paper source, secret, commit, stage, or push was
   changed.
+
+## 2026-07-27 — Post-audit reproducibility and release hardening
+
+- Moved Stage 2 category qualification onto normalized scene weights.
+  `R_hat` and `n_eff` are invariant to a common KDE-density scale, reliable
+  zero-recall primary evidence opens search without certifying a candidate, and
+  missing or under-evidenced primary data cannot prove a complement stronger.
+- Replaced the seeded 300-target bandwidth approximation with exact
+  full-sample leave-one-out Gaussian-grid fitting over all 2,934 emitted
+  profiles. Duplicate profile vectors are grouped algebraically without
+  changing the objective. The selected bandwidth remains `0.08`; the artifact
+  records method `full_leave_one_out_gaussian_grid_v1`, sample size `2934`, and
+  a replayable fit digest.
+- Implemented action-conditioned per-cell DACE retrieval with BM25+dense RRF,
+  explicit dense-unavailable/fallback provenance, and complete typed primary
+  and candidate evidence rows in the CEGO payload.
+- Packaged the default `toolcards` data in the wheel and made a fresh Docker
+  build compile pinned Smartian sources into the image. The native ARM64 outer
+  image uses the ARM64 `.NET` runtime, carries the x86-64 runtime libraries
+  required by official Linux `solc`, pins an ARM-compatible GPTScan Z3/Falcon
+  pair, and contains no macOS host path.
+- Kept each fuzz campaign's original outer deadline, reserved six seconds for
+  Smartian lifecycle/report handling, and added `EXECUTED_PARTIAL` aggregation
+  so valid current-run findings survive sibling failure or timeout.
+- Allowed ordinary decimal duration prose while continuing to reject
+  statistical field names and rate-like values. Updated effective paper prose
+  for conditional shared compilation, dataset-level runtime proxies, and
+  user-budget fuzz campaigns.
+- A clean isolated sdist-to-wheel build produced an 87-entry wheel containing
+  the default Performance KB, profile artifact, and vector index with no stale
+  certification modules, bytecode cache, or host-path dependency. A full native
+  ARM64 Docker build and `docker build --check .` completed without warnings.
+- Live image verification passed for native `.NET 8.0.29`, official Linux
+  `solc`, Smartian, Falcon `0.2.28`, Z3 `4.13.0.0`, all 2,934 profiles, and the
+  full-sample bandwidth metadata. A real `pragma solidity ^0.4.26` Smartian run
+  used a 15-second outer budget, fuzzed for 9 seconds, completed 18,425
+  executions, and emitted one valid mishandled-exception finding with no parser
+  errors or failures.
+- Final verification passed: complete suite `501 passed`; compileall; CLI help;
+  Performance-KB JSON validation and unchanged-file diff; `git diff --check`;
+  clean sdist/wheel build; fresh Docker build and live analyzer smoke; and
+  `latexmk` for the 12-page paper.
+- Checkpoint 24 and AC37–AC43 are complete. Per the requested exclusions,
+  `toolcards/performance_db.json` and the optional RuleChecker-bypass behavior
+  were not changed. No secret, commit, stage, or push was introduced.
+
+## 2026-07-28 — Local-private benchmark runtime snapshot
+
+- Added an ignored `toolcards/.private/` runtime snapshot so the source
+  checkout continues to use local-private evaluation slices while tracked
+  release knowledge remains public-only.
+- Recovered the private Performance extension from a private recovery source
+  and merged it with the current public KB. The local snapshot validates and
+  leaves the tracked `toolcards/performance_db.json` byte-unchanged.
+- Rebuilt the local profile artifact with `solc_compact_ast_v3` over the public
+  and private corpora using a full-sample leave-one-out bandwidth fit.
+- Added fail-closed runtime selection. The private pair must pass both
+  production loaders, exactly extend current public rows/datasets, and have
+  identical Performance/profile delta identities. Missing, stale, or
+  mismatched halves fail before Stage 1; explicit `kb_root` bypasses the static
+  private snapshot.
+- Removed private source identities and paths from public profile metadata. The
+  public profile samples and fitted statistics remain unchanged.
+- A representative Solidity recommendation exposed the additional private
+  scene identities, emitted the private-snapshot warning, and reached a checked
+  plan. The public-only comparison exposed no private scene.
+- Verification passed: AC44/release/pipeline focus `18 passed`; full suite
+  `510 passed`; compileall; JSON/profile validation; `git diff --check`;
+  Git-ignore, wheel, and Docker exclusions. No linter or type checker is
+  configured. No private artifact is tracked, staged, committed, or pushed.
+- Checkpoint 25 and AC44 are complete.
+
+## 2026-07-28 — Local-private hand-curated RAG snapshot
+
+- Recovered the hand-curated passages and matching embeddings from a private
+  recovery source. The ignored runtime PassageStore and vector index exactly
+  retain their public prefixes and append the bound private rows.
+- Marked every private-only passage with `linked_evaluation_ids=[]` and no
+  performance-observation links. The private passages remain qualitative:
+  retrieval and CEGO may cite them, but they cannot acquire `w_D`,
+  independently qualify a complement, or bypass Stage 2 statistics, runtime,
+  applicability, or RuleChecker.
+- Extended static snapshot resolution from a Performance/profile pair to one
+  four-artifact boundary. Performance KB, profiles, PassageStore, and vector
+  index now activate together only after production-schema, exact public
+  prefix, dataset-delta, passage order/count, embedding dimension/provider/
+  model, embedding-prefix, and PassageStore-digest validation.
+- Normal source-checkout recommendation now defaults to the private
+  PassageStore/index when the complete snapshot is active. Explicit individual
+  passage/index paths retain their override semantics, while explicit
+  `kb_root` continues to bypass the complete static private snapshot.
+- The original private source remains ignored recovery provenance rather than
+  a runtime activation artifact. The complete local snapshot validates, and
+  every private passage is BM25-retrievable without an embedding credential.
+- Independent Trellis review found no production defect and added regressions
+  for a provenance-only recovery source plus forbidden performance-observation
+  links. Verification passed: AC45 focus `35 passed`; complete
+  suite `528 passed`; compileall, CLI help, `git diff --check`, public file
+  hash/diff checks, and Git/wheel/Docker exclusions. No linter or type checker
+  is configured.
+- Checkpoint 26 and AC45 are complete. No private artifact was tracked, staged,
+  committed, pushed, or added to the public PassageStore/vector index.
+
+## 2026-07-30 — CEGO voting design expansion removed
+
+- The user confirmed that multi-sample CEGO voting was never part of the
+  intended design. The prior R17/AC31 majority-vote requirement, its code, and
+  its manuscript sentence were unauthorized design expansion and are
+  superseded by the single-proposal contract.
+- Each `run_cego` invocation now makes one temperature-zero structured request,
+  validates one `CegoProposal`, and passes it directly to the unchanged
+  assembler. CEGO owns no sample count, ballot, vote threshold, abstention, or
+  cross-response citation aggregation.
+- Request and schema failures raise `CegoError`. A RuleChecker rejection starts
+  one fresh single-request repair round with the rejection reasons; bounded
+  exhaustion still returns the checked primary-only fallback.
+- `CegoProposalSample` and ballot/sample terminology were removed from the
+  schema boundary. The compact prompt still carries the complete Stage 1
+  lineage once and legal candidate matrix rows by reference.
+- Verification passed: focused review `71 passed`; complete suite `528 passed`;
+  compileall and `git diff --check`. The paper file is outside this code change
+  and remains untouched; any paper/code reconciliation requires explicit user
+  authorization.
+
+## 2026-08-03 — Auditable Stage 2 Top-5 boundary
+
+- Applied one shared five-candidate ceiling only after complement count,
+  stronger-than-primary, feasibility, evidence, runtime, and budget gates.
+  Legal candidates are ordered by descending `R_hat`, descending `n_eff`, then
+  tool ID. Overflow remains visible as typed `NOT_SHORTLISTED` evidence.
+- Promoted the ceiling from a builder convention to a schema/Checker invariant. The
+  ownership panel now rejects oversized, mislabelled, overlapping, underfilled,
+  or incorrectly ranked partitions, and the complete matrix verifies every
+  row's ownership status against its panel partition. RuleChecker rebuilds the
+  canonical panel and rejects any semantically altered partition.
+- Added regressions for seven qualified candidates, an under-evidenced high-rate
+  candidate, deterministic tie ordering, CEGO prompt exclusion, proposal
+  sanitization, forged-certificate rejection, and forged-schema rejection.
+- Verification passed: Stage 1 isolation `38 passed`; focused Stage 2/CEGO/
+  Checker/report coverage `119 passed`; complete suite `535 passed` with the
+  pre-existing release-wheel regression still failing because its discovered
+  system `setuptools 58.0.4` emits `UNKNOWN-0.0.0.whl` instead of a `lakes-*`
+  wheel. `compileall`, `git diff --check`, legacy-symbol scans, and protected
+  knowledge-file diff checks passed. No knowledge data, paper source, commit,
+  stage, or push was changed.
+
+## 2026-08-12 — Core release integration audit
+
+- Rechecked the public runtime contracts end to end: one structured CEGO
+  request per round without voting; normalized `w_D` recall evidence and the
+  strict stronger-than-primary gate; canonical Top-5 ownership partitions and
+  Checker rebuild; partial-execution preservation; exact-tag Securify reuse
+  without `--sudo`; and category reports that retain exact raw findings.
+- Closed the remaining GPTScan provider gap. Its no-override path now uses
+  endpoint-aware credential precedence, so official DeepSeek hosts prefer
+  `DEEPSEEK_API_KEY` while custom hosts cannot receive provider-specific keys.
+  Vendored official-DeepSeek calls disable thinking, structured callers request
+  JSON output, and custom compatible hosts receive neither provider field.
+- Added regressions for official-host key precedence, exact GPTScan request
+  options, custom-host compatibility, and structured-caller wiring. Updated
+  public configuration prose and the DeepSeek audit note to match the runtime.
+- Verification passed: release-focused matrix `165 passed`; complete suite
+  `573 passed`; compileall; CLI help; and `git diff --check`. Compileall still
+  reports the existing invalid-escape `SyntaxWarning`s in vendored GPTScan
+  `query_template.py` and `rich_utils.py`; they are outside this integration
+  change. No commit, stage, or push was introduced.
+
+## 2026-08-12 — Public release candidate quality gate
+
+- Made the clean wheel self-contained by packaging the exact public ToolCard,
+  Performance-KB, profile, passage, and vector-index assets. A fresh install
+  can now recommend outside the source checkout without an explicit knowledge
+  directory.
+- Kept the complete local-private snapshot outside Git and Docker. Public
+  profile metadata and tracked prose no longer disclose private source
+  identities, and private runtime artifacts must be complete, regular,
+  non-symlink files before atomic activation.
+- Made the container build reproduce Smartian from pinned source and
+  dependencies without a host path or local build output. Native ARM builder,
+  runtime usage, short fuzz, and GPTScan dependency/import probes passed.
+- Added read-only GitHub Actions checks for Python 3.10 and 3.13, wheel content,
+  dependency consistency, the complete test suite, and source compilation.
+- Independent Trellis review replaced one private-derived retrieval fixture
+  with synthetic evidence and added fail-closed symlink regressions. Final
+  verification passed: `577 passed`; clean build/wheel/sdist/install and
+  outside-checkout offline recommendation; `compileall`; four CLI help probes;
+  `git diff --check`; `docker build --check .`; public-profile validation; and
+  candidate privacy scans. All ignored private artifact digests remained
+  byte-identical and the production private resolver remained active locally.
+- The current candidate tree is publishable. The existing remote branch
+  history still contains superseded private metadata labels from an earlier
+  public commit; removing those historical blobs requires separately approved
+  history rewriting and a force push.

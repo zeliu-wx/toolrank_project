@@ -32,9 +32,11 @@ compared with an absent historical completion estimate.
   `fuzzer/main.py --timeout`.
 - sFuzz `tools/sfuzz/scripts/do_solidity.sh` receives `$TIMEOUT`, subtracts
   bounded overhead, and passes the derived value to `fuzzer -d`.
-- Smartian receives the same outer `--timeout`; `run_smartian.py` uses
-  `max(1, outer-3)` for the inner fuzz limit so report shutdown stays inside
-  the scheduler-owned hard deadline.
+- Smartian receives the same exact floating-point outer `--timeout`;
+  `run_smartian.py` uses `max(1, floor(outer-6))` for the integer inner fuzz
+  limit. The bounded six-second lifecycle allowance covers two startup seconds
+  and four report-normalization seconds inside the scheduler-owned hard
+  deadline.
 
 The outer deadline remains authoritative. Very small allocations may end in a
 typed timeout; wrappers must not silently extend the process deadline.
@@ -82,5 +84,6 @@ Cover all three packaged fuzz tools plus a renamed synthetic fuzz card;
 default and explicit allocations; Stage 1 non-interference; primary and
 complement executability; mixed static/fuzz and multiple-fuzz max accounting;
 sequential input multiplication; DACE/CEGO serialization; Checker agreement;
-SmartBugs timeout command construction for ConFuzzius/sFuzz; Smartian outer and
-inner deadlines; and tiny-budget typed timeout behavior.
+SmartBugs timeout command construction for ConFuzzius/sFuzz; Smartian exact
+outer and lifecycle-reserved inner deadlines; and tiny-budget typed timeout
+behavior.

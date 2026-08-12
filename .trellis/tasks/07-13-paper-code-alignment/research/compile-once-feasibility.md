@@ -26,7 +26,7 @@ The effective paper should be narrowed from an unconditional universal claim to 
 
 ### Files found
 
-- `/Users/liuze/Downloads/LAKES/main_revised.tex` — effective Stage 3 paper sentence; line 434 is the only active compile-once contract.
+- `main_revised.tex` — effective Stage 3 paper sentence; line 434 is the only active compile-once contract.
 - `toolrank/engine.py` — Stage 3 orchestration, execution-plan construction, report harvesting, and fusion.
 - `toolrank/execution.py` — manual-runner and native-SmartBugs execution paths.
 - `toolrank/runner.py` — typed input discovery, per-tool dispatch, compiler selection, special adapters, generic SmartBugs preparation, output staging, and batch execution.
@@ -45,7 +45,7 @@ The effective paper should be narrowed from an unconditional universal claim to 
 
 ### What the effective paper actually requires
 
-The active sentence says that Stage 3 “first compiles the target contract once with the specified solc version and shares the compiled artifacts across tools,” then executes tools in parallel (`/Users/liuze/Downloads/LAKES/main_revised.tex:434`). It does not define:
+The active sentence says that Stage 3 “first compiles the target contract once with the specified solc version and shares the compiled artifacts across tools,” then executes tools in parallel (`main_revised.tex:434`). It does not define:
 
 - an artifact schema or which of ABI, source AST, creation bytecode, deployed/runtime bytecode, source maps, metadata, storage layout, or IR is shared;
 - how the “specified” exact `solc` patch is selected;

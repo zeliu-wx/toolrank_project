@@ -1,5 +1,11 @@
 # Research: CEGO k=3 category-level majority voting
 
+> **Revoked on 2026-07-30.** The user confirmed that multi-sample voting was
+> never part of the intended LAKES design. This research records a superseded
+> implementation path and must not be used as an active requirement. The
+> executable contract is one `CegoProposal` request per CEGO round followed by
+> deterministic assembly and RuleChecker validation.
+
 - Query: Inspect the current CEGO/OpenAI-compatible/RuleChecker pipeline and the effective manuscript text around low-temperature, k-sample majority voting; propose the smallest deterministic typed design for k=3, including unusable samples, citation merging, repair-loop interaction, API-call semantics, configuration ownership, and exact tests.
 - Scope: mixed (local manuscript, task/spec artifacts, current source/tests, and the official OpenAI Chat Completions reference)
 - Date: 2026-07-19
@@ -28,7 +34,7 @@ reducer before the existing deterministic assembly.
 
 ### Files found
 
-- `/Users/liuze/Downloads/LAKES/main_revised.tex` -- effective manuscript; Stage 2 proposal, checking, repair, and voting prose is at lines 374--427.
+- `main_revised.tex` -- effective manuscript; Stage 2 proposal, checking, repair, and voting prose is at lines 374--427.
 - `.trellis/tasks/07-13-paper-code-alignment/prd.md` -- task requirements; weighted evidence must survive CEGO to RuleChecker at lines 314--344, and checked repair fallback is AC7 at line 354.
 - `.trellis/tasks/07-13-paper-code-alignment/design.md` -- current typed evidence, additive ownership, checker, and fallback design at lines 267--374; test guidance is at lines 518--525.
 - `.trellis/tasks/07-13-paper-code-alignment/implement.md` -- CEGO/checker checkpoint and existing repair-test intent at lines 119--152; weighted-lineage implementation record is at lines 428--447.

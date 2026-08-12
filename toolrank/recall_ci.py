@@ -43,7 +43,7 @@ def newcombe_diff_interval(
     return diff, low, high
 
 
-Row = tuple[float, int, int]  # (p_hat weight, detected, total)
+Row = tuple[float, int, int]  # (normalized w_D, detected, total)
 
 
 def weighted_recall(rows: list[Row]) -> float | None:
@@ -53,9 +53,9 @@ def weighted_recall(rows: list[Row]) -> float | None:
 
 
 def _bootstrap_weighted_recalls(rows: list[Row], n_boot: int, rng: np.random.Generator) -> np.ndarray:
-    # Jeffreys posterior on the similarity-EFFECTIVE sample: n_eff = sum(p_hat*m),
-    # d_eff = sum(p_hat*d). CI width reflects n_eff, so dissimilar datasets (small
-    # p_hat -> small n_eff) widen the CI -> insufficient, matching the n_eff gate.
+    # Jeffreys posterior on the similarity-effective sample: n_eff = sum(w_D*m),
+    # d_eff = sum(w_D*d). CI width reflects n_eff, so low-relevance datasets
+    # contribute less evidence, matching the n_eff gate.
     # Robust at p in {0,1} (Beta never degenerates).
     d_eff = sum(w * d for w, d, _ in rows)
     n_eff = sum(w * m for w, _, m in rows)

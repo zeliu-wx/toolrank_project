@@ -13,7 +13,7 @@ from toolrank.schemas_v2 import (
 from tests.stage1_fixtures import entry, knowledge_base, observation, scene_pool, tool_entry
 
 
-def test_category_statistics_use_raw_density_not_normalized_weight() -> None:
+def test_category_statistics_use_normalized_scene_weight() -> None:
     kb = knowledge_base(
         [
             entry("d1", [observation("a", recall=0.8, precision=0.7, detected=8, total=10)]),
@@ -23,14 +23,129 @@ def test_category_statistics_use_raw_density_not_normalized_weight() -> None:
     matrix = build_recall_coverage(
         kb,
         ["a"],
-        scene_densities={"d1": 0.5, "d2": 0.25},
+        scene_weights={"d1": 2.0 / 3.0, "d2": 1.0 / 3.0},
     )
 
     row = next(item for item in matrix.matrix if item.tool == "a" and item.category == "reentrancy")
     assert row.detected == 12
     assert row.total == 30
-    assert row.n_eff == pytest.approx(10.0)
+    assert row.n_eff == pytest.approx(40.0 / 3.0)
     assert row.R_hat == pytest.approx(0.5)
+
+
+def test_category_statistics_are_invariant_to_common_kde_scale() -> None:
+    kb = knowledge_base(
+        [
+            entry("d1", [observation("a", recall=0.8, precision=0.7, detected=9, total=10)]),
+            entry("d2", [observation("a", recall=0.8, precision=0.7, detected=2, total=20)]),
+        ]
+    )
+
+    first = build_recall_coverage(
+        kb,
+        ["a"],
+        scene_weights={"d1": 0.5, "d2": 0.25},
+    ).matrix[0]
+    scaled = build_recall_coverage(
+        kb,
+        ["a"],
+        scene_weights={"d1": 50.0, "d2": 25.0},
+    ).matrix[0]
+
+    assert scaled.R_hat == pytest.approx(first.R_hat)
+    assert scaled.n_eff == pytest.approx(first.n_eff)
+
+
+def test_omitted_scene_weights_mean_uniform_source_relevance() -> None:
+    kb = knowledge_base(
+        [
+            entry("d1", [observation("a", recall=0.8, precision=0.7, detected=8, total=10)]),
+            entry("d2", [observation("a", recall=0.8, precision=0.7, detected=4, total=20)]),
+        ]
+    )
+
+    row = build_recall_coverage(kb, ["a"]).matrix[0]
+
+    assert row.R_hat == pytest.approx(0.4)
+    assert row.n_eff == pytest.approx(15.0)
+
+
+@pytest.mark.parametrize(
+    "scene_weights",
+    [
+        {"d1": -0.1},
+        {"d1": float("inf")},
+        {"d1": float("nan")},
+        {"d1": 0.0},
+    ],
+)
+def test_invalid_scene_weights_fail_at_recall_coverage_boundary(
+    scene_weights: dict[str, float],
+) -> None:
+    kb = knowledge_base(
+        [
+            entry("d1", [observation("a", recall=0.8, precision=0.7, detected=8, total=10)]),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="scene weights"):
+        build_recall_coverage(kb, ["a"], scene_weights=scene_weights)
+
+
+@pytest.mark.parametrize(
+    ("weight", "support_level"),
+    [
+        (0.499999, "under_evidenced"),
+        (0.5, "eligible"),
+        (0.500001, "eligible"),
+    ],
+)
+def test_normalized_weight_n_eff_boundary(
+    weight: float,
+    support_level: str,
+) -> None:
+    kb = knowledge_base(
+        [
+            entry(
+                "d1",
+                [observation("a", recall=0.8, precision=0.7, detected=15, total=30)],
+            ),
+            entry("d2", []),
+        ]
+    )
+    row = build_recall_coverage(
+        kb,
+        ["a"],
+        scene_weights={"d1": weight, "d2": 1.0 - weight},
+    ).matrix[0]
+
+    assert row.n_eff == pytest.approx(weight * 30.0)
+    assert row.support_level == support_level
+
+
+def test_stage2_context_ignores_raw_density_when_building_category_statistics() -> None:
+    pool = scene_pool(("d1", 0.75, 0.01), ("d2", 0.25, 0.99))
+    stage1 = Stage1EvidencePacket(
+        tool_table=[tool_entry("a")],
+        scene_pool=pool,
+        score_panel=ScorePanel(),
+        primary_selection=PrimarySelection(
+            status=Stage1Status.PRIMARY_SELECTED,
+            primary_tool="a",
+            eligible_tools=["a"],
+        ),
+    )
+    kb = knowledge_base(
+        [
+            entry("d1", [observation("a", recall=0.8, precision=0.7, detected=8, total=10)]),
+            entry("d2", [observation("a", recall=0.8, precision=0.7, detected=0, total=10)]),
+        ]
+    )
+
+    row = build_stage2_context(stage1, kb, ["reentrancy"]).recall_coverage.matrix[0]
+
+    assert row.R_hat == pytest.approx(0.6)
+    assert row.n_eff == pytest.approx(10.0)
 
 
 def test_low_primary_neff_marks_diagnostic_without_changing_primary() -> None:
@@ -64,9 +179,7 @@ def test_low_primary_neff_marks_diagnostic_without_changing_primary() -> None:
     assert context.primary_attention.primary_tool == "a"
     assert context.primary_attention.under_evidenced_categories == ["reentrancy"]
     assert context.required_categories == ["reentrancy"]
-    assert [(item.tool, item.category) for item in context.dace_rag_focus] == [
-        ("b", "reentrancy")
-    ]
+    assert context.dace_rag_focus == []
 
 
 def test_no_required_categories_builds_empty_category_context() -> None:

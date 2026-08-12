@@ -25,7 +25,10 @@ from toolrank.compilation import (
     write_compilation_manifest,
 )
 from toolrank.process_deadline import run_process_with_deadline
-from toolrank.execution_status import aggregate_tool_status_history
+from toolrank.execution_status import (
+    aggregate_tool_status_history,
+    overall_execution_status,
+)
 from toolrank.report_parser import load_per_tool_findings
 from toolrank.report_validity import (
     OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
@@ -369,6 +372,23 @@ def _native_smartbugs_execute(
     target_path = Path(plan.target_path or "")
     results_root = Path(plan.results_root or "")
     selected_tools = list(dict.fromkeys(tool for tool in plan.selected_tool_ids if tool))
+    gptscan_api_base = ""
+    gptscan_api_key = ""
+    gptscan_model = ""
+    if "gptscan" in selected_tools:
+        effective_runner_env = os.environ.copy()
+        if runner_env:
+            effective_runner_env.update(runner_env)
+        gptscan_api_base = packaged_runner._resolve_gptscan_api_base(
+            env=effective_runner_env,
+        )
+        gptscan_api_key = packaged_runner._resolve_gptscan_api_key(
+            api_base=gptscan_api_base,
+            env=effective_runner_env,
+        )
+        gptscan_model = packaged_runner._resolve_gptscan_model(
+            env=effective_runner_env,
+        )
     schedule = plan.execution_schedule
     if schedule.execution_jobs != 0 and schedule.execution_jobs < len(selected_tools):
         raise ValueError("execution_jobs must provide one worker per selected tool")
@@ -526,12 +546,9 @@ def _native_smartbugs_execute(
                     smartbugs_dir=smartbugs_dir,
                     timeout=resolved_timeout,
                     gptscan_timeout=int(resolved_timeout),
-                    openai_api_key=str((runner_env or {}).get("OPENAI_API_KEY") or ""),
-                    openai_api_base=str(
-                        (runner_env or {}).get("OPENAI_API_BASE")
-                        or (runner_env or {}).get("OPENAI_BASE_URL")
-                        or ""
-                    ),
+                    openai_api_key=gptscan_api_key,
+                    openai_api_base=gptscan_api_base,
+                    gptscan_model=gptscan_model,
                     mapping=vulnerability_mapping,
                     quarantine_root=quarantine_root,
                     input_kind=input_kind,
@@ -683,7 +700,6 @@ def _native_smartbugs_execute(
     }
     (results_root / "fusion_plan.json").write_text(json.dumps(fusion_manifest, indent=2), encoding="utf-8")
 
-    status = "executed" if not failures else "failed"
     cleanup_failed = any(
         returncode == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
         for _tool_results in tool_results.values()
@@ -697,6 +713,10 @@ def _native_smartbugs_execute(
     # Harvest findings from results directory
     per_tool_findings = (
         {} if cleanup_failed else _harvest_findings(plan, results_root)
+    )
+    status = overall_execution_status(
+        statuses,
+        fatal_cleanup_failure=cleanup_failed,
     )
 
     return plan.model_copy(
@@ -815,7 +835,7 @@ def execute_plan(
         statuses = _load_tool_statuses(plan, results_root, return_code)
         return plan.model_copy(
             update={
-                "status": "executed",
+                "status": overall_execution_status(statuses),
                 "execution_mode": "manual_runner",
                 "return_code": return_code,
                 "stdout_tail": stdout_tail,
@@ -849,9 +869,10 @@ def execute_plan(
 
     per_tool_findings = _harvest_findings(plan, results_root) if results_root else {}
     statuses = _load_tool_statuses(plan, results_root, return_code)
+    status = overall_execution_status(statuses)
     plan = plan.model_copy(
         update={
-            "status": "failed",
+            "status": status,
             "execution_mode": "manual_runner",
             "return_code": return_code,
             "stdout_tail": stdout_tail,
@@ -864,7 +885,11 @@ def execute_plan(
             "per_tool_findings": per_tool_findings,
         }
     )
-    if stderr_tail and "Report not found" in stderr_tail:
+    if (
+        status == "failed"
+        and stderr_tail
+        and "Report not found" in stderr_tail
+    ):
         return _native_smartbugs_execute(plan, runner_env=runner_env)
     return plan
 

@@ -30,7 +30,8 @@ EXPLANATION_TEXT_CONTRACT: Final = (
     "discuss only the accepted primary, accepted complements, checked category owners, "
     "RuleChecker acceptance, and the certificate's plan and budget conclusions. Never "
     "include the raw audit fields `detected` or `total`, `R_hat`, `n_eff`, a category "
-    "rate, any other ambiguous `rate`, or their values in `text`. Never name an "
+    "rate, any other ambiguous `rate`, or statistical values in `text`. Ordinary "
+    "decimal durations such as `0.5 minutes` are allowed. Never name an "
     "unselected tool or infer why any candidate was rejected. Statistical details "
     "remain in machine evidence."
 )
@@ -42,13 +43,26 @@ _FORBIDDEN_TOTAL_AUDIT_FIELD: Final = re.compile(
     r"(?:`total`|(?<!\w)total(?!\w)(?=\s*(?:[=:]|\b(?:audit|counts?|field|is|was)\b)))",
     re.IGNORECASE,
 )
-_AMBIGUOUS_RATE_VALUE: Final = re.compile(
+_INHERENTLY_RATE_LIKE_VALUE: Final = re.compile(
     r"(?<![\w.-])(?:"
     r"(?:\d+(?:\.\d+)?|\.\d+)\s*%"
     r"|\d+\s*/\s*\d+"
-    r"|0?\.\d+"
-    r"|1\.0+"
     r")(?!\w|\.\d)",
+)
+_DECIMAL_VALUE: Final = re.compile(
+    r"(?<![\w.-])(?:\d+\.\d+|\.\d+)(?!\w|\.\d)"
+)
+_DURATION_UNIT: Final = re.compile(
+    r"^\s*(?:seconds?|minutes?|hours?)\b",
+    re.IGNORECASE,
+)
+_STATISTICAL_VALUE_CONTEXT: Final = re.compile(
+    r"(?<!\w)(?:"
+    r"audit|categor(?:y|ies)|confidence|detect(?:ion|ed)?|evidence|metric|"
+    r"precision|probability|proportion|rate|ratio|recall|score|statistic(?:al)?|"
+    r"support(?:ing)?|value|weight"
+    r")(?!\w)",
+    re.IGNORECASE,
 )
 
 _SYSTEM_PROMPT = f"""You explain an already-fixed, RuleChecker-accepted tool combination.
@@ -195,6 +209,7 @@ def _matrix_tool_ids(matrix: ActionByEvidenceMatrix) -> set[str]:
     for panel in matrix.ownership_panel.values():
         for candidates in (
             panel.eligible_candidates,
+            panel.not_shortlisted_candidates,
             panel.under_evidenced_candidates,
             panel.rejected_candidates,
         ):
@@ -210,7 +225,7 @@ def _text_satisfies_semantics(
     if (
         _FORBIDDEN_EXPLANATION_STATISTICS.search(text)
         or _FORBIDDEN_TOTAL_AUDIT_FIELD.search(text)
-        or _AMBIGUOUS_RATE_VALUE.search(text)
+        or _has_forbidden_statistical_value(text)
     ):
         return False
 
@@ -238,6 +253,19 @@ def _text_satisfies_semantics(
         )
         for tool_id in unselected_tool_ids
     )
+
+
+def _has_forbidden_statistical_value(text: str) -> bool:
+    """Reject rate-shaped values, but permit ordinary decimal durations."""
+    if _INHERENTLY_RATE_LIKE_VALUE.search(text):
+        return True
+    for match in _DECIMAL_VALUE.finditer(text):
+        if _DURATION_UNIT.match(text[match.end() :]):
+            continue
+        context = text[max(0, match.start() - 64) : match.end() + 64]
+        if _STATISTICAL_VALUE_CONTEXT.search(context):
+            return True
+    return False
 
 
 def _client_is_valid(client: object) -> bool:

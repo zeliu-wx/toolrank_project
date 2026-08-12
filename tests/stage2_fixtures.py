@@ -23,13 +23,21 @@ def stage2_context(
     *,
     b_runtime: float | None = 8.0,
     c_runtime: float | None = 3.0,
-    primary_rate: float | None = 0.2,
-    primary_n_eff: float | None = 5.0,
+    primary_rate: float | None = 0.0,
+    primary_n_eff: float | None = 15.0,
     peer_rate: float | None = 0.8,
     peer_n_eff: float | None = 15.0,
 ) -> Stage2EvidenceContext:
     stage1 = Stage1EvidencePacket(
-        target_contract={"features": {"primary_solidity_version": "0.8.20", "loc_total": 100}},
+        target_contract={
+            "features": {
+                "primary_solidity_version": "0.8.20",
+                "solidity_version_constraints": ["^0.8.20"],
+                "gower_solc_bucket": "0.8.x",
+                "present_input_kinds": ["sol"],
+                "loc_total": 100,
+            }
+        },
         tool_table=[
             tool_entry("a", runtime=2.0),
             tool_entry("b", runtime=b_runtime),

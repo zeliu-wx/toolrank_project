@@ -70,15 +70,15 @@ def _proposal(ref: str) -> dict:
     }
 
 
-def test_checker_repair_checks_one_aggregate_per_round_and_uses_fresh_votes(
+def test_checker_repair_checks_one_proposal_per_round_and_passes_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = stage2_context()
     limit = budget()
     matrix = build_action_evidence_matrix(context, limit)
     responses = [
-        *[_proposal("missing_ref") for _ in range(3)],
-        *[_proposal("ev_rcov_b_reentrancy") for _ in range(3)],
+        _proposal("missing_ref"),
+        _proposal("ev_rcov_b_reentrancy"),
     ]
     prompts: list[dict] = []
     checker_verdicts: list[CheckerVerdict] = []
@@ -111,27 +111,19 @@ def test_checker_repair_checks_one_aggregate_per_round_and_uses_fresh_votes(
         check_fn=check,
     )
 
-    assert len(prompts) == 6
+    assert len(prompts) == 2
     assert len(checker_verdicts) == 2
     assert checker_verdicts[0].status == "REJECT"
     assert verdict.status == "ACCEPT"
-    assert [prompt["previous_checker_failures"] for prompt in prompts[:3]] == [
-        [],
-        [],
-        [],
-    ]
-    assert [prompt["previous_checker_failures"] for prompt in prompts[3:]] == [
-        checker_verdicts[0].rule_failures,
-        checker_verdicts[0].rule_failures,
-        checker_verdicts[0].rule_failures,
-    ]
+    assert prompts[0]["previous_checker_failures"] == []
+    assert prompts[1]["previous_checker_failures"] == checker_verdicts[0].rule_failures
     assert certificate.category_assignments[0].for_claims[0].evidence_refs == [
         "ev_rcov_b_reentrancy"
     ]
     assert "missing_ref" not in certificate.model_dump_json()
 
 
-def test_three_rejected_k3_rounds_make_nine_samples_then_check_primary_fallback(
+def test_three_rejected_rounds_make_three_requests_then_check_primary_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = stage2_context()
@@ -143,7 +135,7 @@ def test_three_rejected_k3_rounds_make_nine_samples_then_check_primary_fallback(
     def fake_completion(**_kwargs):
         nonlocal calls
         calls += 1
-        return _proposal(f"missing_ref_round_{(calls - 1) // 3}")
+        return _proposal(f"missing_ref_round_{calls - 1}")
 
     def run_round(current_context, current_matrix, previous):
         return run_cego(
@@ -169,7 +161,7 @@ def test_three_rejected_k3_rounds_make_nine_samples_then_check_primary_fallback(
         check_fn=check,
     )
 
-    assert calls == 9
+    assert calls == 3
     assert [item.status for item in checker_verdicts] == [
         "REJECT",
         "REJECT",

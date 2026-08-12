@@ -63,7 +63,7 @@
       "0.8.30": 83
     },
     "manifest_version": "contract_profile_manifest_v1",
-    "manifest_digest": "31039685dd805228507dfea034f1219fe6fea8952cdcfd2b457901da73a1534d",
+    "manifest_digest": "33eecc8e09618872bccae4433a4d2b8908bcb71c358b3b419235cc38f2b3452b",
     "source_digest": "85727b36fa52b927d72e96e4dec0cfe3ca601ad55ea2909df94a033c299f07a0",
     "profiles_digest": "929a8688608014933480f68a04cae84f2073d5dbbce9828fe81f3200d4805d58",
     "dataset_names": [
@@ -81,26 +81,6 @@
         "path": "smartbugsdb",
         "reason": "duplicate_performance_kb_alias",
         "duplicate_of": "smartbugsdb"
-      },
-      {
-        "name": "lakasingle_merged_by_lines_0_500_0_4_x",
-        "path": "lakasingle_merged_by_lines/lines_0-500/0.4.x",
-        "reason": "no_performance_kb_scene_identity"
-      },
-      {
-        "name": "lakasingle_merged_by_lines_500_plus_0_4_x",
-        "path": "lakasingle_merged_by_lines/lines_500+/0.4.x",
-        "reason": "no_performance_kb_scene_identity"
-      },
-      {
-        "name": "lakasingle_merged_by_lines_500_plus_0_8_x_1000_plus",
-        "path": "lakasingle_merged_by_lines/lines_500+/0.8.x_1000+",
-        "reason": "no_performance_kb_scene_identity"
-      },
-      {
-        "name": "lakasingle_merged_0_5_x",
-        "path": "lakasingle_merged/0.5.x",
-        "reason": "no_performance_kb_scene_identity"
       }
     ],
     "sample_counts": {
@@ -109,9 +89,9 @@
       "skipped": 199
     },
     "bandwidth": {
-      "method": "seeded_leave_one_out_gaussian_grid_v1",
+      "method": "full_leave_one_out_gaussian_grid_v1",
       "seed": 0,
-      "sample_size": 300,
+      "sample_size": 2934,
       "grid": [
         0.01,
         0.02,
@@ -123,7 +103,7 @@
         0.25,
         0.35
       ],
-      "fit_digest": "db9255d62db17a9d3b90f95412ea25c9b817a38511eb1fa413205a3c3f11169d"
+      "fit_digest": "56dc3e986bb733875d7f47e3a690a7ce5303bc97432a67afac3f038c208035eb"
     }
   },
   "_counts": {

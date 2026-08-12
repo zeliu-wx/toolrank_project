@@ -22,7 +22,7 @@ The existing source tree has useful pieces but no production dynamic-KB ingestio
 
 ### Effective paper contract
 
-The effective source is `/Users/liuze/Downloads/LAKES/main_revised.tex`:
+The effective source is `main_revised.tex`:
 
 - `main_revised.tex:438-441` defines the dynamic-KB subsection and the three phases: **Extract**, **Map & Check**, and **Commit**.
 - `main_revised.tex:450` requires PDF conversion to structured Markdown with MinerU, preserving headings and table layouts. It then requires a fixed LLM extraction template with two channels:
@@ -53,7 +53,7 @@ The four paper fields are a normalization minimum, not a complete persisted pass
 | `.trellis/spec/backend/lakes-scheduling-contract.md` | The active executable scheduling contract, including evidence-lineage behavior that new dynamic links must preserve. |
 | `.trellis/spec/guides/cross-layer-thinking-guide.md` | Requires tracing data contracts across producer, persistence, and consumer boundaries. |
 | `.trellis/spec/guides/code-reuse-guide.md` | Requires searching for and reusing existing validation/atomic-write patterns rather than duplicating them. |
-| `/Users/liuze/Downloads/LAKES/main_revised.tex` | Effective paper source, especially lines 438-474. |
+| `main_revised.tex` | Effective paper source, especially lines 438-474. |
 | `toolrank/dataset_kb.py` | Current performance-KB loader, entry range checks, refresh/merge behavior, and non-atomic writes. |
 | `toolrank/schemas.py` | Current performance-entry and tool-card models; performance models are permissive (`extra="allow"`). |
 | `toolrank/categories.py` | DASP-10 category list and alias normalizer; unknown labels are normalized but not rejected. |
@@ -487,7 +487,12 @@ Suggested exit behavior:
 - `4`: transaction failed but prior pointer was verified/restored;
 - `5`: recovery required because rollback or baseline verification failed.
 
-The current default tool-card directory is source-relative (`toolrank/cli.py:14`). Root `toolcards/` is not included by the package-data rule, which includes only `toolrank/config/*.csv` and `*.json` (`pyproject.toml:28-33`). A wheel therefore cannot assume a writable source-adjacent `toolcards` directory. Ingestion should require an explicit writable `--kb-root`, a documented config value, or a platform data directory; it should never modify package installation files.
+**Historical pre-AC40 packaging note (obsolete):** the default ToolCard
+directory was source-relative and wheels did not include root `toolcards/`.
+AC40 now packages those files as a read-only sibling package used by
+recommendation. The lasting ingestion rule is unchanged: require an explicit
+writable `--kb-root` and explicit baseline `--toolcards-dir`; never modify
+package installation files.
 
 MinerU should not be added to core dependencies. Current core dependencies are small (`pyproject.toml:12-18`; `requirements.txt`), while MinerU is a large optional stack. Package concrete adapters in source, keep their imports lazy, and expose optional extras only if the project chooses an in-process adapter. A subprocess CLI adapter avoids coupling the core package to MinerU internals.
 

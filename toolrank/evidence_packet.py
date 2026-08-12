@@ -6,7 +6,11 @@ from dataclasses import dataclass
 import math
 import re
 
-from toolrank.assignment_evidence import MIN_N_EFF, complement_strength_against_primary
+from toolrank.assignment_evidence import (
+    MAX_COMPLEMENT_CANDIDATES,
+    MIN_N_EFF,
+    complement_strength_against_primary,
+)
 from toolrank.categories import normalize_category
 from toolrank.feasibility import check_feasibility
 from toolrank.numeric_bounds import clamp_normalized_mass
@@ -562,13 +566,13 @@ def _performance_view(
     kb: PerformanceKnowledgeBase,
     tool_ids: list[str],
     required_categories: list[str],
-    scene_densities: dict[str, float],
+    scene_weights: dict[str, float],
 ) -> list[PerformanceDBEvidenceRow]:
     requested = {_tool_key(tool): tool for tool in tool_ids}
     required = set(required_categories)
     rows: list[PerformanceDBEvidenceRow] = []
     for entry in kb.entries:
-        density = scene_densities.get(entry.source_id)
+        scene_weight = scene_weights.get(entry.source_id)
         for observation in entry.tool_performance_data:
             tool = requested.get(_tool_key(observation.tool_name))
             if tool is None:
@@ -581,7 +585,7 @@ def _performance_view(
                     detected = count.detected
                     total = count.total
                     rate = detected / total
-                    n_eff = density * total if density is not None else None
+                    n_eff = scene_weight * total if scene_weight is not None else None
                 else:
                     detected = None
                     total = None
@@ -803,7 +807,7 @@ def _focus_items(
             ).evidence_stronger
         ]
         candidates.sort(key=lambda row: (-(row.R_hat or 0.0), -(row.n_eff or 0.0), row.tool))
-        for row in candidates[:3]:
+        for row in candidates[:MAX_COMPLEMENT_CANDIDATES]:
             focus.append(
                 DACERAGFocusItem(
                     tool=row.tool,
@@ -833,15 +837,17 @@ def build_stage2_context(
         )
     )
     tool_ids = [entry.tool for entry in stage1.tool_table]
-    scene_densities = {
-        neighbor.paper_id: neighbor.kernel_density
-        for neighbor in stage1.scene_pool.neighbors
-        if neighbor.paper_id is not None
-    }
+    scene_weights: dict[str, float] = {}
+    for neighbor in stage1.scene_pool.neighbors:
+        if neighbor.paper_id is None:
+            continue
+        scene_weights[neighbor.paper_id] = (
+            scene_weights.get(neighbor.paper_id, 0.0) + neighbor.weight
+        )
     recall_coverage = build_recall_coverage(
         kb,
         tool_ids,
-        scene_densities=scene_densities,
+        scene_weights=scene_weights,
     )
     decisions = decide_primary_categories(
         recall_coverage.matrix,
@@ -880,7 +886,7 @@ def build_stage2_context(
             kb,
             tool_ids,
             required,
-            scene_densities,
+            scene_weights,
         ),
         tool_overall_metrics=_overall_metrics_view(kb, tool_ids),
         primary_category_decisions=decisions,

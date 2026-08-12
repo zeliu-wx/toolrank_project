@@ -399,8 +399,6 @@ def build_artifact(
     ]
     bandwidth = scene_kde.fit_bandwidth(
         normalized,
-        sample_size=scene_kde.BANDWIDTH_SAMPLE_SIZE,
-        seed=scene_kde.BANDWIDTH_SEED,
         grid=scene_kde.BANDWIDTH_GRID,
     )
     global_source_digest = scene_kde.coverage_source_digest(coverage)
@@ -408,7 +406,7 @@ def build_artifact(
     bandwidth_meta = {
         "method": scene_kde.BANDWIDTH_METHOD,
         "seed": scene_kde.BANDWIDTH_SEED,
-        "sample_size": scene_kde.BANDWIDTH_SAMPLE_SIZE,
+        "sample_size": len(normalized),
         "grid": list(scene_kde.BANDWIDTH_GRID),
     }
     bandwidth_meta["fit_digest"] = scene_kde.bandwidth_fit_digest(

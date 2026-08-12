@@ -43,6 +43,7 @@
     <PackageReference Include="FSharp.Data" Version="4.0.1" />
     <PackageReference Include="Argu" Version="5.1.0" />
     <PackageReference Include="MathNet.Numerics" Version="4.9.0" />
+    <PackageReference Include="MathNet.Numerics.FSharp" Version="4.9.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -52,6 +53,8 @@
     <ProjectReference Include="..\nethermind\src\Nethermind\Nethermind.Core\Nethermind.Core.csproj" />
     <ProjectReference Include="..\nethermind\src\Nethermind\Nethermind.Core.Test\Nethermind.Core.Test.csproj" />
     <ProjectReference Include="..\nethermind\src\Nethermind\Nethermind.Abi\Nethermind.Abi.csproj" />
+    <ProjectReference Include="..\nethermind\src\Nethermind\Nethermind.Logging\Nethermind.Logging.csproj" />
+    <ProjectReference Include="..\nethermind\src\Nethermind\Nethermind.Store\Nethermind.Store.csproj" />
     <ProjectReference Include="..\EVMAnalysis\src\EVMAnalysis.fsproj" />
   </ItemGroup>
 

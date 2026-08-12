@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -25,19 +26,29 @@ from typing import Dict, List, Optional, Tuple
 DEFAULT_SMARTIAN_DLL = Path(os.getenv("TOOLRANK_SMARTIAN_DLL", "/work/docker/vendor/smartian/build/Smartian.dll"))
 SOLC_ARTIFACTS_DIR = Path.home() / ".solc-select" / "artifacts"
 SOLCX_DIR = Path.home() / ".solcx"
-# A real shared-artifact run takes about 2.2 seconds beyond its fuzz budget for
-# engine startup/shutdown and result normalization. Round that measured fixed
-# cost up while keeping the scheduler-owned outer deadline unchanged.
-SMARTIAN_REPORT_SHUTDOWN_RESERVE_SECONDS = 3
+# The worker's hard outer deadline includes Python/.NET startup, Smartian
+# shutdown, result normalization, and the handoff to report promotion. A prior
+# obsolete three-second reserve was too narrow for completed 30-second campaigns.
+# Keep this fixed allowance bounded and subtract it only from Smartian's inner
+# integer fuzz limit; the scheduler-owned outer deadline is never extended.
+SMARTIAN_STARTUP_RESERVE_SECONDS = 2
+SMARTIAN_REPORT_NORMALIZATION_RESERVE_SECONDS = 4
+SMARTIAN_LIFECYCLE_RESERVE_SECONDS = (
+    SMARTIAN_STARTUP_RESERVE_SECONDS
+    + SMARTIAN_REPORT_NORMALIZATION_RESERVE_SECONDS
+)
 
 
-def _smartian_fuzz_timeout_seconds(outer_timeout_seconds: int) -> int:
-    """Leave bounded time for Smartian shutdown and report normalization."""
-    if outer_timeout_seconds <= 0:
+def _smartian_fuzz_timeout_seconds(outer_timeout_seconds: float) -> int:
+    """Leave bounded lifecycle time inside an unchanged outer deadline."""
+    if (
+        not math.isfinite(float(outer_timeout_seconds))
+        or outer_timeout_seconds <= 0
+    ):
         raise ValueError("outer_timeout_seconds must be positive")
     return max(
         1,
-        outer_timeout_seconds - SMARTIAN_REPORT_SHUTDOWN_RESERVE_SECONDS,
+        math.floor(outer_timeout_seconds - SMARTIAN_LIFECYCLE_RESERVE_SECONDS),
     )
 
 
@@ -402,7 +413,7 @@ def _run_one_contract(
     out_dir: Path,
     smartian_dll: Path,
     dotnet_cmd: str,
-    timeout: int,
+    timeout: float,
     local_solc_bins: Dict[str, str],
     fallback_solc: str,
     bytecode_kind: str,
@@ -515,7 +526,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--timeout",
-        type=int,
+        type=float,
         default=1200,
         help="outer tool budget in seconds; Smartian reserves bounded report time",
     )
@@ -545,10 +556,12 @@ def main() -> int:
         _die(f"contract path not found: {contract_or_dir}", 1)
     if not smartian_dll.exists():
         _die(f"Smartian.dll not found: {smartian_dll}", 1)
-    if args.timeout <= 0:
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
         _die("--timeout must be positive", 2)
 
-    _ensure_executable(args.dotnet, "--version")
+    # Runtime-only .NET installations support --info but reserve --version for
+    # SDK discovery. Smartian needs the runtime, not the SDK.
+    _ensure_executable(args.dotnet, "--info")
     using_shared = bool(args.shared_abi or args.shared_bytecode)
     if using_shared and not (args.shared_abi and args.shared_bytecode):
         _die("--shared-abi and --shared-bytecode must be supplied together", 2)

@@ -102,6 +102,13 @@ def test_configurable_root_build_is_deterministic_and_complete(
         dimension: [1, 2] for dimension in _complexity.NUM_DIMS
     }
     assert first["_bandwidth"] in first["_meta"]["bandwidth"]["grid"]
+    assert first["_meta"]["bandwidth"]["method"] == (
+        "full_leave_one_out_gaussian_grid_v1"
+    )
+    assert first["_meta"]["bandwidth"]["sample_size"] == 2
+    assert first["_meta"]["bandwidth"]["sample_size"] == (
+        first["_meta"]["sample_counts"]["succeeded"]
+    )
     assert [sample["id"] for sample in first["datasets"]["Dataset"]] == [
         "Dataset::A.sol",
         "Dataset::nested/B.sol",

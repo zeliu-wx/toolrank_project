@@ -33,7 +33,7 @@ def test_real_smartcheck_shape_is_not_stronger_than_slither() -> None:
     )
 
     assert result.candidate_count_qualified is True
-    assert result.primary_count_qualified_positive is True
+    assert result.primary_baseline_reliable is True
     assert result.evidence_stronger is False
     assert result.basis == "NEWCOMBE_CANDIDATE_MINUS_PRIMARY"
     assert result.recall_gap == pytest.approx(-0.004368)
@@ -72,11 +72,10 @@ def test_higher_point_estimate_is_rejected_when_newcombe_lower_bound_is_not_posi
     [
         (None, None),
         (None, 100.0),
-        (0.0, 100.0),
         (0.2, 14.999999),
     ],
 )
-def test_positive_count_qualified_candidate_is_stronger_without_reliable_primary_baseline(
+def test_positive_candidate_fails_closed_without_reliable_primary_baseline(
     primary_rate: float | None,
     primary_n_eff: float | None,
 ) -> None:
@@ -88,9 +87,26 @@ def test_positive_count_qualified_candidate_is_stronger_without_reliable_primary
     )
 
     assert result.candidate_count_qualified is True
-    assert result.primary_count_qualified_positive is False
-    assert result.evidence_stronger is True
+    assert result.primary_baseline_reliable is False
+    assert result.evidence_stronger is False
     assert result.basis == "PRIMARY_BASELINE_UNRELIABLE"
+    assert result.reason_code == "PRIMARY_COMPARISON_BASELINE_UNRELIABLE"
     assert result.recall_gap is None
     assert result.recall_gap_low is None
     assert result.recall_gap_high is None
+
+
+def test_count_qualified_zero_primary_is_a_reliable_newcombe_baseline() -> None:
+    result = complement_strength_against_primary(
+        candidate_rate=0.8,
+        candidate_n_eff=15.0,
+        primary_rate=0.0,
+        primary_n_eff=15.0,
+    )
+
+    assert result.candidate_count_qualified is True
+    assert result.primary_baseline_reliable is True
+    assert result.basis == "NEWCOMBE_CANDIDATE_MINUS_PRIMARY"
+    assert result.recall_gap == pytest.approx(0.8)
+    assert result.recall_gap_low == pytest.approx(0.4759568442595266)
+    assert result.evidence_stronger is True

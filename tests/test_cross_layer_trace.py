@@ -18,7 +18,7 @@ def test_primary_and_owner_sets_survive_every_boundary() -> None:
             entry(
                 "d1",
                 [
-                    observation("a", recall=0.9, precision=0.9, detected=1, total=5),
+                    observation("a", recall=0.9, precision=0.9, detected=0, total=15),
                     observation("b", recall=0.8, precision=0.8, detected=12, total=15),
                 ],
             )

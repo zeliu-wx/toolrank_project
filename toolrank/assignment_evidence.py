@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from toolrank.recall_ci import newcombe_diff_interval
-from toolrank.schemas_v2 import ComplementStrengthResult
+from toolrank.schemas_v2 import (
+    MAX_COMPLEMENT_CANDIDATES,
+    ComplementStrengthResult,
+)
 
 
 MIN_N_EFF = 15.0
@@ -30,35 +33,36 @@ def complement_strength_against_primary(
 ) -> ComplementStrengthResult:
     """Decide whether candidate category evidence is stronger than the primary.
 
-    A reliable positive primary baseline requires the candidate-minus-primary
-    Newcombe Recall-gap lower bound to be strictly positive.  Missing,
-    non-positive, or under-evidenced primary statistics do not support a
-    fabricated numeric comparison; a positive count-qualified candidate is
-    evidence-stronger in that case.
+    Every legal complement needs a reliable primary comparison and a strictly
+    positive candidate-minus-primary Newcombe Recall-gap lower bound. Missing
+    or under-evidenced primary statistics fail closed. A count-qualified zero
+    primary rate is a reliable baseline and uses the same interval test.
     """
     candidate_qualified = complement_count_eligible(
         rate=candidate_rate,
         n_eff=candidate_n_eff,
     )
-    primary_qualified = complement_count_eligible(
-        rate=primary_rate,
-        n_eff=primary_n_eff,
+    primary_baseline_reliable = bool(
+        primary_rate is not None
+        and primary_rate >= 0.0
+        and primary_n_eff is not None
+        and primary_n_eff >= MIN_N_EFF
     )
     if not candidate_qualified:
         return ComplementStrengthResult(
             candidate_count_qualified=False,
-            primary_count_qualified_positive=primary_qualified,
+            primary_baseline_reliable=primary_baseline_reliable,
             evidence_stronger=False,
             basis="CANDIDATE_COUNT_INELIGIBLE",
             reason_code="CANDIDATE_COUNT_EVIDENCE_INELIGIBLE",
         )
-    if not primary_qualified:
+    if not primary_baseline_reliable:
         return ComplementStrengthResult(
             candidate_count_qualified=True,
-            primary_count_qualified_positive=False,
-            evidence_stronger=True,
+            primary_baseline_reliable=False,
+            evidence_stronger=False,
             basis="PRIMARY_BASELINE_UNRELIABLE",
-            reason_code="COUNT_QUALIFIED_CANDIDATE_WITHOUT_RELIABLE_POSITIVE_PRIMARY",
+            reason_code="PRIMARY_COMPARISON_BASELINE_UNRELIABLE",
         )
 
     assert candidate_rate is not None and candidate_n_eff is not None
@@ -72,7 +76,7 @@ def complement_strength_against_primary(
     stronger = low > 0.0
     return ComplementStrengthResult(
         candidate_count_qualified=True,
-        primary_count_qualified_positive=True,
+        primary_baseline_reliable=True,
         evidence_stronger=stronger,
         basis="NEWCOMBE_CANDIDATE_MINUS_PRIMARY",
         reason_code=(

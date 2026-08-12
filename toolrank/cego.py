@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass
 import json
-from typing import Final, Literal
+from typing import Final
 
 from pydantic import ValidationError
 
@@ -28,8 +26,7 @@ from toolrank.schemas_v2 import (
     BudgetProfile,
     CategoryAssignment,
     CheckerVerdict,
-    CegoComplementProposal,
-    CegoProposalSample,
+    CegoProposal,
     ForbiddenClaimsAttestation,
     SelectedToolEntry,
     Stage2EvidenceContext,
@@ -41,17 +38,7 @@ class CegoError(RuntimeError):
     """Raised when CEGO cannot produce a usable decision."""
 
 
-CEGO_SAMPLE_COUNT: Final = 3
 CEGO_TEMPERATURE: Final = 0.0
-PRIMARY_ONLY_VOTE: Final = "PRIMARY_ONLY"
-_MAJORITY_THRESHOLD: Final = CEGO_SAMPLE_COUNT // 2 + 1
-
-
-@dataclass(frozen=True)
-class _SampleOutcome:
-    index: int
-    status: Literal["VALID", "REQUEST_FAILED", "MALFORMED"]
-    proposal: CegoProposalSample | None = None
 
 
 _SYSTEM_PROMPT = """You schedule complementary smart-contract analysis tools.
@@ -65,76 +52,13 @@ plan-runtime (maximum per-contract runtime times file count), and alert budgets.
 target has or lacks a vulnerability and never treat no findings as proof of safety.
 Use the matrix-owned w_D and s_t,D values attached to each evaluation link. Do not
 invent or override weights. Unlinked qualitative passages may explain a choice but
-cannot independently support a complement. Return JSON only."""
+cannot independently support a complement. Resolve each matrix_row.stage1_tool_ref
+and evidence linked_evaluation_ids against the single top-level stage1_evidence
+object. Return JSON only."""
 
 
 def _response_schema() -> dict:
-    return CegoProposalSample.model_json_schema()
-
-
-def _aggregate_proposals(
-    outcomes: list[_SampleOutcome],
-    required_categories: list[str],
-) -> CegoProposalSample:
-    """Reduce exactly three sample outcomes into category-level majority winners."""
-    if len(outcomes) != CEGO_SAMPLE_COUNT:
-        raise ValueError(f"CEGO voting requires exactly {CEGO_SAMPLE_COUNT} outcomes")
-    valid = [
-        outcome
-        for outcome in outcomes
-        if outcome.status == "VALID" and outcome.proposal is not None
-    ]
-    if not valid:
-        raise CegoError("All three CEGO samples were unusable")
-
-    proposals: list[CegoComplementProposal] = []
-    for category in dict.fromkeys(required_categories):
-        votes: Counter[str] = Counter()
-        by_sample: list[CegoComplementProposal | None] = []
-        for outcome in valid:
-            sample_proposal = next(
-                (
-                    proposal
-                    for proposal in outcome.proposal.complements
-                    if proposal.category == category
-                ),
-                None,
-            )
-            by_sample.append(sample_proposal)
-            votes[
-                sample_proposal.tool
-                if sample_proposal is not None
-                else PRIMARY_ONLY_VOTE
-            ] += 1
-
-        if votes[PRIMARY_ONLY_VOTE] >= _MAJORITY_THRESHOLD:
-            continue
-        winner = next(
-            (
-                tool
-                for tool, count in votes.items()
-                if tool != PRIMARY_ONLY_VOTE and count >= _MAJORITY_THRESHOLD
-            ),
-            None,
-        )
-        if winner is None:
-            continue
-        evidence_refs = sorted(
-            {
-                ref
-                for proposal in by_sample
-                if proposal is not None and proposal.tool == winner
-                for ref in proposal.evidence_refs
-            }
-        )
-        proposals.append(
-            CegoComplementProposal(
-                category=category,
-                tool=winner,
-                evidence_refs=evidence_refs,
-            )
-        )
-    return CegoProposalSample(complements=proposals)
+    return CegoProposal.model_json_schema()
 
 
 def _prompt_payload(
@@ -146,10 +70,9 @@ def _prompt_payload(
     w_precision: float | None,
 ) -> str:
     primary = context.stage1.primary_selection.primary_tool
-    evaluations = {
-        row.evaluation_id: row
-        for tool in matrix.stage1_evidence.tools.values()
-        for row in tool.benchmark_evaluations
+    relevant_rows = {
+        (row.category, row.tool): row
+        for row in matrix.relevant_matrix_rows
     }
     categories: list[dict] = []
     for category in context.required_categories:
@@ -157,36 +80,20 @@ def _prompt_payload(
         candidates: list[dict] = []
         if panel is not None:
             for candidate in panel.eligible_candidates:
-                relevant_cards = [
-                    card
-                    for card in matrix.evidence_cards
-                    if card.tool == candidate.tool
-                    and card.category in {category, "__GLOBAL__"}
-                ]
+                matrix_row = relevant_rows[(category, candidate.tool)]
+                matrix_row_payload = matrix_row.model_dump(
+                    mode="json",
+                    exclude={"stage1_evidence"},
+                )
+                matrix_row_payload["stage1_tool_ref"] = matrix_row.tool
                 candidates.append(
                     {
                         "tool": candidate.tool,
                         "R_hat": candidate.rate,
                         "n_eff": candidate.n_eff,
+                        "strength": candidate.strength.model_dump(mode="json"),
+                        "matrix_row": matrix_row_payload,
                         "evidence_refs": candidate.evidence_refs,
-                        "evidence": [
-                            {
-                                "id": card.evidence_id,
-                                "evidence_type": card.evidence_type,
-                                "source": card.source.model_dump(mode="json"),
-                                "role": card.decision_role,
-                                "value": card.value.model_dump(mode="json") if card.value else None,
-                                "claim": card.scope.get("claim_text"),
-                                "applies_to_target": card.scope.get("applies_to_target"),
-                                "limitations": card.limitations,
-                                "benchmark_relevance_weight": card.benchmark_relevance_weight,
-                                "linked_evaluations": [
-                                    evaluations[evaluation_id].model_dump(mode="json")
-                                    for evaluation_id in card.linked_evaluation_ids
-                                ],
-                            }
-                            for card in relevant_cards
-                        ],
                         "caveat_refs": candidate.caveat_refs,
                     }
                 )
@@ -254,6 +161,10 @@ def _prompt_payload(
         "schema": "dace_context_v2",
         "primary_tool": primary,
         "stage1_evidence": matrix.stage1_evidence.model_dump(mode="json"),
+        "retrieval_diagnostics": [
+            diagnostic.model_dump(mode="json")
+            for diagnostic in matrix.retrieval_diagnostics
+        ],
         "required_categories": categories,
         "budget": matrix.budget_profile.model_dump(mode="json"),
         "tool_runtime_evidence": runtime_by_tool,
@@ -400,7 +311,7 @@ def run_cego(
     w_recall: float | None = None,
     w_precision: float | None = None,
 ) -> Step2DecisionCertificate:
-    """Collect three raw proposals, vote per category, and assemble one plan."""
+    """Request one structured proposal and assemble it into a constrained plan."""
     user_prompt = _prompt_payload(
         context,
         matrix,
@@ -408,36 +319,26 @@ def run_cego(
         w_recall=w_recall,
         w_precision=w_precision,
     )
-    response_schema = _response_schema()
-    outcomes: list[_SampleOutcome] = []
-    for index in range(CEGO_SAMPLE_COUNT):
-        try:
-            raw = create_json_chat_completion(
-                client=client,
-                model=model or DEFAULT_OPENAI_MODEL,
-                system_prompt=_SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                schema=response_schema,
-                temperature=CEGO_TEMPERATURE,
-                raise_on_error=True,
-            )
-        except OpenAICompatError:
-            outcomes.append(
-                _SampleOutcome(index=index, status="REQUEST_FAILED")
-            )
-            continue
-        try:
-            proposal = CegoProposalSample.model_validate(raw)
-        except ValidationError:
-            outcomes.append(_SampleOutcome(index=index, status="MALFORMED"))
-            continue
-        outcomes.append(
-            _SampleOutcome(index=index, status="VALID", proposal=proposal)
+    try:
+        raw = create_json_chat_completion(
+            client=client,
+            model=model or DEFAULT_OPENAI_MODEL,
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            schema=_response_schema(),
+            temperature=CEGO_TEMPERATURE,
+            raise_on_error=True,
         )
+    except OpenAICompatError as exc:
+        raise CegoError(f"CEGO LLM call failed: {exc}") from exc
 
-    aggregate = _aggregate_proposals(outcomes, context.required_categories)
+    try:
+        proposal = CegoProposal.model_validate(raw)
+    except ValidationError as exc:
+        raise CegoError("CEGO LLM returned a malformed proposal") from exc
+
     return assemble_decision(
-        aggregate.model_dump(mode="json"),
+        proposal.model_dump(mode="json"),
         context,
         matrix,
         matrix.budget_profile,

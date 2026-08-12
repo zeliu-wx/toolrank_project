@@ -6,21 +6,24 @@ import re
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+
 DEFAULT_OPENAI_BASE_URL = (
     os.getenv("LAKES_OPENAI_BASE_URL")
     or os.getenv("TOOLRANK_OPENAI_BASE_URL")
-    or "http://127.0.0.1:8317/v1"
+    or DEFAULT_DEEPSEEK_BASE_URL
 )
 DEFAULT_OPENAI_MODEL = (
     os.getenv("LAKES_OPENAI_MODEL")
     or os.getenv("TOOLRANK_OPENAI_MODEL")
-    or "gpt-5.4-mini"
+    or DEFAULT_DEEPSEEK_MODEL
 )
 DEFAULT_OPENAI_API_KEY = ""
 DEFAULT_CONNECT_TIMEOUT_SEC = float(
@@ -182,18 +185,36 @@ def _is_local_server_reachable(base_url: str) -> bool:
         return False
 
 
-def _api_key_from_env() -> str:
-    return (
-        os.getenv("OPENAI_API_KEY")
-        or os.getenv("SILICONFLOW_API_KEY")
-        or os.getenv("WHATAI_API_KEY")
-        or DEFAULT_OPENAI_API_KEY
-    )
+def _is_deepseek_host(base_url: str) -> bool:
+    hostname = (urlparse(base_url).hostname or "").lower()
+    return hostname == "api.deepseek.com" or hostname.endswith(".deepseek.com")
+
+
+def resolve_api_key_from_env(
+    base_url: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    source = os.environ if env is None else env
+    hostname = (urlparse(base_url).hostname or "").lower()
+    if _is_deepseek_host(base_url):
+        return (
+            source.get("DEEPSEEK_API_KEY")
+            or source.get("OPENAI_API_KEY")
+            or DEFAULT_OPENAI_API_KEY
+        )
+    if hostname == "api.siliconflow.cn" or hostname.endswith(".siliconflow.cn"):
+        return (
+            source.get("SILICONFLOW_API_KEY")
+            or source.get("OPENAI_API_KEY")
+            or DEFAULT_OPENAI_API_KEY
+        )
+    return source.get("OPENAI_API_KEY") or DEFAULT_OPENAI_API_KEY
 
 
 def load_openai_client() -> Optional[OpenAICompatClient]:
     base_url = DEFAULT_OPENAI_BASE_URL.rstrip("/")
-    api_key = _api_key_from_env()
+    api_key = resolve_api_key_from_env(base_url)
     if not api_key:
         return None
     if not _is_local_server_reachable(base_url):
@@ -226,6 +247,12 @@ def create_json_chat_completion(
         ],
         "temperature": temperature,
     }
+    if _is_deepseek_host(client.base_url):
+        # DeepSeek V4 enables thinking by default, where temperature is ignored.
+        # These strict JSON calls require non-thinking mode for the documented
+        # temperature-zero behavior and DeepSeek's native JSON-output contract.
+        payload["thinking"] = {"type": "disabled"}
+        payload["response_format"] = {"type": "json_object"}
 
     def request_payload(
         request_payload: Dict[str, Any],

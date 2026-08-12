@@ -8,7 +8,12 @@ import toolrank.cli as cli
 from toolrank.cego import build_primary_only_certificate
 from toolrank.dace_rag import build_action_evidence_matrix
 from toolrank.engine import PipelineResult
-from toolrank.schemas import ContractFeatures
+from toolrank.schemas import (
+    ContractFeatures,
+    ExecutionResult,
+    FusedReport,
+    ToolExecutionStatus,
+)
 from toolrank.schemas_v2 import CheckerVerdict, PipelineStatus, Stage2Outcome, Stage2Status
 from tests.stage2_fixtures import budget, stage2_context
 
@@ -52,3 +57,31 @@ def test_json_renders_nullable_v2_boundaries(monkeypatch) -> None:
     assert payload["packet"]["schema_version"] == "screc_v2"
     assert payload["stage2_context"]["schema_version"] == "dace_context_v2"
     assert payload["certificate"]["schema_version"] == "dace_orch_v2"
+
+
+def test_summary_renders_partial_execution_honestly(monkeypatch) -> None:
+    planned = plan_result()
+    partial = PipelineResult(
+        status=PipelineStatus.EXECUTED_PARTIAL,
+        features=planned.features,
+        packet=planned.packet,
+        context=planned.context,
+        stage2_outcome=planned.stage2_outcome,
+        matrix=planned.matrix,
+        certificate=planned.certificate,
+        checker_verdict=planned.checker_verdict,
+        execution=ExecutionResult(
+            status="partial",
+            selected_tool_ids=["a"],
+            primary_tool_id="a",
+            tool_statuses={"a": ToolExecutionStatus(status="PARTIAL")},
+        ),
+        fused_report=FusedReport(primary_tool_id="a"),
+    )
+    monkeypatch.setattr(cli, "run_recommendation", lambda **_kwargs: partial)
+
+    response = runner.invoke(cli.app, ["recommend", "A.sol", "--emit", "summary"])
+
+    assert response.exit_code == 0
+    assert "status: EXECUTED_PARTIAL" in response.stdout
+    assert "execution: partial" in response.stdout

@@ -27,7 +27,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Iterator, Optional, Sequence
+from typing import Iterator, Literal, Mapping, Optional, Sequence
 
 from toolrank.categories import normalize_category
 from toolrank.adapter_capabilities import adapter_supports_input
@@ -43,6 +43,11 @@ from toolrank.compilation import (
 )
 from toolrank.execution_status import aggregate_tool_status_history
 from toolrank.fusion import compact_fused_report_payload, fuse_reports
+from toolrank.openai_compat import (
+    DEFAULT_DEEPSEEK_BASE_URL,
+    DEFAULT_DEEPSEEK_MODEL,
+    resolve_api_key_from_env,
+)
 from toolrank.process_deadline import run_process_with_deadline
 from toolrank.report_validity import (
     OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
@@ -89,6 +94,20 @@ def _env_value(*names: str, default: str = "") -> str:
     return default
 
 
+def _env_value_from(
+    env: Mapping[str, str] | None,
+    *names: str,
+    default: str = "",
+) -> str:
+    if env is None:
+        return _env_value(*names, default=default)
+    for name in names:
+        value = env.get(name)
+        if value:
+            return value
+    return default
+
+
 SECURIFY2_RUNNER = Path(_env_value("LAKES_SECURIFY2_RUNNER", "TOOLRANK_SECURIFY2_RUNNER", default=str(_repo_path("docker/vendor/securify2/securifyjson.py"))))
 SECURIFY2_PLATFORM = _env_value("LAKES_SECURIFY2_PLATFORM", "TOOLRANK_SECURIFY2_PLATFORM", default="linux/amd64")
 SECURIFY2_DEFAULT_SOLC = _env_value("LAKES_SECURIFY2_DEFAULT_SOLC", "TOOLRANK_SECURIFY2_DEFAULT_SOLC", default="0.5.12")
@@ -96,8 +115,8 @@ SECURIFY2_IMAGE_TEMPLATE = _env_value("LAKES_SECURIFY2_IMAGE_TEMPLATE", "TOOLRAN
 GPTSCAN_ROOT = Path(_env_value("LAKES_GPTSCAN_ROOT", "TOOLRANK_GPTSCAN_ROOT", default=str(_repo_path("docker/vendor/gptscan"))))
 GPTSCAN_PY = GPTSCAN_ROOT / ".venv" / "bin" / "python"
 GPTSCAN_MAIN = GPTSCAN_ROOT / "src" / "main.py"
-GPTSCAN_DEFAULT_API_BASE = _env_value("LAKES_GPTSCAN_DEFAULT_API_BASE", "TOOLRANK_GPTSCAN_DEFAULT_API_BASE")
-GPTSCAN_DEFAULT_MODEL_GPT4 = _env_value("LAKES_GPTSCAN_DEFAULT_MODEL_GPT4", "TOOLRANK_GPTSCAN_DEFAULT_MODEL_GPT4", default="gpt-5.4")
+GPTSCAN_DEFAULT_API_BASE = DEFAULT_DEEPSEEK_BASE_URL
+GPTSCAN_DEFAULT_MODEL_GPT4 = DEFAULT_DEEPSEEK_MODEL
 SAILFISH_RUNNER = Path(_env_value("LAKES_SAILFISH_RUNNER", "TOOLRANK_SAILFISH_RUNNER", default=str(_repo_path("docker/runners/run_sailfish.py"))))
 SAILFISH_DEFAULT_SOLC = _env_value("LAKES_SAILFISH_DEFAULT_SOLC", "TOOLRANK_SAILFISH_DEFAULT_SOLC", default="0.4.25")
 SMARTIAN_RUNNER = Path(_env_value("LAKES_SMARTIAN_RUNNER", "TOOLRANK_SMARTIAN_RUNNER", default=str(_repo_path("docker/runners/run_smartian.py"))))
@@ -106,9 +125,65 @@ SMARTBUGS_PROJECT_RUNNER = Path(__file__).with_name("smartbugs_project.py")
 _PRAGMA_SOLIDITY_RE = re.compile(r"pragma\s+solidity\s+([^;]+);", re.IGNORECASE)
 _SOLC_SELECT_VERSION_RE = re.compile(r"(?<![0-9.])(\d+\.\d+\.\d+)(?![0-9.])")
 _SECURIFY2_IMAGE_CACHE: set[str] = set()
+_SECURIFY2_IMAGE_INSPECT_ATTEMPTS = 3
+_SECURIFY2_IMAGE_INSPECT_TIMEOUT_SECONDS = 5.0
+_SECURIFY2_IMAGE_INSPECT_BACKOFF_SECONDS = 0.05
+_SECURIFY2_IMAGE_INSPECT_MAX_BACKOFF_SECONDS = 0.1
+_SECURIFY2_IMAGE_INSPECT_STDERR_LIMIT = 2048
 _ADAPTER_WORKER_ARG = "--_adapter-worker"
 UNSUPPORTED_INPUT_RETURN_CODE = 65
 COMPILATION_FAILURE_RETURN_CODE = 66
+
+
+def _resolve_gptscan_api_base(
+    explicit: str = "",
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    return (
+        explicit.strip()
+        or _env_value_from(env, "OPENAI_API_BASE").strip()
+        or _env_value_from(env, "OPENAI_BASE_URL").strip()
+        or _env_value_from(
+            env,
+            "LAKES_GPTSCAN_DEFAULT_API_BASE",
+            "TOOLRANK_GPTSCAN_DEFAULT_API_BASE",
+        ).strip()
+        or _env_value_from(env, "LAKES_OPENAI_BASE_URL").strip()
+        or _env_value_from(env, "TOOLRANK_OPENAI_BASE_URL").strip()
+        or GPTSCAN_DEFAULT_API_BASE.strip()
+        or DEFAULT_DEEPSEEK_BASE_URL
+    )
+
+
+def _resolve_gptscan_api_key(
+    explicit: str = "",
+    api_base: str = "",
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    explicit_key = explicit.strip()
+    if explicit_key:
+        return explicit_key
+    return resolve_api_key_from_env(
+        _resolve_gptscan_api_base(api_base, env=env),
+        env=env,
+    ).strip()
+
+
+def _resolve_gptscan_model(*, env: Mapping[str, str] | None = None) -> str:
+    return (
+        _env_value_from(env, "GPTSCAN_MODEL_GPT4", "GPTSCAN_MODEL").strip()
+        or _env_value_from(
+            env,
+            "LAKES_GPTSCAN_DEFAULT_MODEL_GPT4",
+            "TOOLRANK_GPTSCAN_DEFAULT_MODEL_GPT4",
+        ).strip()
+        or _env_value_from(env, "LAKES_OPENAI_MODEL").strip()
+        or _env_value_from(env, "TOOLRANK_OPENAI_MODEL").strip()
+        or GPTSCAN_DEFAULT_MODEL_GPT4.strip()
+        or DEFAULT_DEEPSEEK_MODEL
+    )
 
 
 @dataclass(frozen=True)
@@ -158,6 +233,105 @@ def _stream_process(
     finally:
         proc.stdout.close()
     return proc.wait()
+
+
+def _run_securify2_build_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    display_command: Optional[list[str]] = None,
+    redactions: Sequence[str] = (),
+) -> int:
+    logged_command = display_command or command
+    print(f"[run] (cwd={cwd}) {shlex.join(logged_command)}")
+    # BuildKit helpers may retain stdout after the docker client exits. A
+    # regular file lets this worker wait for the direct child and replay the
+    # available output without blocking on a descendant-held pipe.
+    try:
+        with tempfile.NamedTemporaryFile(mode="w+b") as captured:
+            proc = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                env=env,
+                stdout=captured,
+                stderr=subprocess.STDOUT,
+            )
+            returncode = proc.wait()
+            captured.flush()
+            with open(captured.name, "rb") as replay:
+                for raw_line in replay:
+                    safe_line = raw_line.decode("utf-8", errors="replace")
+                    for secret in redactions:
+                        if secret:
+                            safe_line = safe_line.replace(secret, "***")
+                    print(safe_line, end="")
+    except OSError:
+        print("[warn] securify2 image build process could not start", file=sys.stderr)
+        return 1
+    return returncode
+
+
+def _inspect_docker_image(image: str) -> Literal["exists", "missing", "error"]:
+    ambiguous_failure: str | None = None
+    for attempt in range(_SECURIFY2_IMAGE_INSPECT_ATTEMPTS):
+        try:
+            completed = subprocess.run(
+                ["docker", "image", "inspect", image],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                check=False,
+                text=True,
+                timeout=_SECURIFY2_IMAGE_INSPECT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            ambiguous_failure = "Docker image inspection timed out"
+        except OSError:
+            print(
+                "[warn] docker executable unavailable for securify2 image "
+                "inspection; refusing to build",
+                file=sys.stderr,
+            )
+            return "error"
+        else:
+            if completed.returncode == 0:
+                return "exists"
+            stderr = completed.stderr or ""
+            if not isinstance(stderr, str):
+                stderr = stderr.decode("utf-8", errors="replace")
+            bounded_stderr = stderr[:_SECURIFY2_IMAGE_INSPECT_STDERR_LIMIT]
+            normalized_stderr = bounded_stderr.casefold()
+            if "no such image" not in normalized_stderr:
+                if "cannot connect to the docker daemon" in normalized_stderr:
+                    ambiguous_failure = "Docker daemon unavailable"
+                elif "context deadline exceeded" in normalized_stderr:
+                    ambiguous_failure = "Docker context deadline exceeded"
+                elif "permission denied" in normalized_stderr:
+                    ambiguous_failure = "Docker access denied"
+                elif "error during connect" in normalized_stderr:
+                    ambiguous_failure = "Docker daemon connection failed"
+                else:
+                    ambiguous_failure = (
+                        f"Docker returned exit code {completed.returncode}"
+                    )
+
+        if attempt + 1 < _SECURIFY2_IMAGE_INSPECT_ATTEMPTS:
+            time.sleep(
+                min(
+                    _SECURIFY2_IMAGE_INSPECT_BACKOFF_SECONDS * (attempt + 1),
+                    _SECURIFY2_IMAGE_INSPECT_MAX_BACKOFF_SECONDS,
+                )
+            )
+
+    if ambiguous_failure is None:
+        return "missing"
+    print(
+        f"[warn] securify2 image inspection failed after "
+        f"{_SECURIFY2_IMAGE_INSPECT_ATTEMPTS} attempts ({ambiguous_failure}); "
+        "refusing to build",
+        file=sys.stderr,
+    )
+    return "error"
 
 
 def _normalize_category_label(label: str) -> str:
@@ -402,6 +576,7 @@ def _run_gptscan(
     gptscan_timeout: int,
     openai_api_base: str,
     *,
+    model: str = "",
     target_root: Path | None = None,
 ) -> int:
     if not GPTSCAN_MAIN.exists():
@@ -446,18 +621,19 @@ def _run_gptscan(
     except OSError:
         print("[warn] GPTScan result preparation failed", file=sys.stderr)
         return 1
-    key = api_key.strip() or os.getenv("OPENAI_API_KEY", "").strip()
+    api_base = _resolve_gptscan_api_base(openai_api_base)
+    key = _resolve_gptscan_api_key(api_key, api_base)
     wrapper = Path(__file__).with_name("gptscan_safe_entry.py")
     command = [
         str(GPTSCAN_PY if GPTSCAN_PY.exists() else Path(sys.executable)),
         str(wrapper),
     ]
-    env = os.environ.copy()
+    env = _sanitized_adapter_env()
     env["OPENAI_API_KEY"] = key
-    env["OPENAI_API_BASE"] = openai_api_base.strip() or env.get("OPENAI_API_BASE", "") or env.get("OPENAI_BASE_URL", "") or GPTSCAN_DEFAULT_API_BASE
+    env["OPENAI_API_BASE"] = api_base
     env["OPENAI_BASE_URL"] = env["OPENAI_API_BASE"]
     env["GPTSCAN_USE_GPT4"] = env.get("GPTSCAN_USE_GPT4", "1")
-    env["GPTSCAN_MODEL_GPT4"] = env.get("GPTSCAN_MODEL_GPT4") or env.get("GPTSCAN_MODEL") or GPTSCAN_DEFAULT_MODEL_GPT4
+    env["GPTSCAN_MODEL_GPT4"] = model.strip() or _resolve_gptscan_model()
     env["GPTSCAN_TIMEOUT_SECONDS"] = str(gptscan_timeout)
     env["LAKES_GPTSCAN_MAIN"] = str(GPTSCAN_MAIN)
     env["LAKES_GPTSCAN_SOURCE"] = str(scan_source)
@@ -547,12 +723,20 @@ def _run_securify2(
     version = version or SECURIFY2_DEFAULT_SOLC
     image = SECURIFY2_IMAGE_TEMPLATE.format(version=version)
     if image not in _SECURIFY2_IMAGE_CACHE:
-        dockerfile = SECURIFY2_RUNNER.parent / "Dockerfile"
-        if dockerfile.exists():
+        image_state = _inspect_docker_image(image)
+        if image_state == "error":
+            return 1
+        if image_state == "exists":
+            print("[cache] securify2 image inspect confirmed existing tag; skipping build")
+        if image_state == "missing":
+            dockerfile = SECURIFY2_RUNNER.parent / "Dockerfile"
+            if not dockerfile.is_file():
+                print(f"[warn] securify2 Dockerfile not found: {dockerfile}", file=sys.stderr)
+                return 1
             build_env = os.environ.copy()
             build_env["DOCKER_BUILDKIT"] = "1"
             build_env["DOCKER_DEFAULT_PLATFORM"] = SECURIFY2_PLATFORM
-            rc = _stream_process(
+            rc = _run_securify2_build_process(
                 ["docker", "build", "--platform", SECURIFY2_PLATFORM, "--build-arg", f"SOLC={version}", "-t", image, "."],
                 cwd=SECURIFY2_RUNNER.parent,
                 env=build_env,
@@ -572,7 +756,6 @@ def _run_securify2(
             image,
             "--platform",
             SECURIFY2_PLATFORM,
-            "--sudo",
             "--debug-cmd",
             "--project-root",
             str(target_root if target_root.is_dir() else contract_path.parent),
@@ -619,7 +802,7 @@ def _run_sailfish(
 def _run_smartian(
     contract_path: Path,
     out_dir: Path,
-    timeout: int,
+    timeout: float,
     *,
     target_root: Path,
     compilation_bundle: Stage3CompilationBundle,
@@ -657,7 +840,7 @@ def _run_smartian(
                 str(contract_path),
                 tmp,
                 "--timeout",
-                str(timeout),
+                format(float(timeout), ".15g"),
                 "--project-root",
                 str(target_root if target_root.is_dir() else contract_path.parent),
                 "--shared-abi",
@@ -899,10 +1082,11 @@ def _run_smartbugs_tool(
     *,
     target_root: Path,
     smartbugs_dir: Optional[Path],
-    timeout: int,
+    timeout: int | float,
     gptscan_timeout: int,
     openai_api_key: str,
     openai_api_base: str,
+    gptscan_model: str = "",
     input_kind: str = "sol",
     compilation_bundle: Stage3CompilationBundle | None = None,
     logical_input_id: str | None = None,
@@ -922,6 +1106,7 @@ def _run_smartbugs_tool(
             openai_api_key,
             gptscan_timeout,
             openai_api_base,
+            model=gptscan_model,
             target_root=target_root,
         )
     if tool_id == "sailfish":
@@ -988,6 +1173,7 @@ def _adapter_worker_main() -> int:
             gptscan_timeout=int(request["gptscan_timeout"]),
             openai_api_key=str(request.get("openai_api_key") or ""),
             openai_api_base=str(request.get("openai_api_base") or ""),
+            gptscan_model=str(request.get("gptscan_model") or ""),
             input_kind=str(request.get("input_kind") or "sol"),
             compilation_bundle=bundle,
             logical_input_id=str(request.get("logical_input_id") or "") or None,
@@ -1001,10 +1187,17 @@ def _adapter_worker_main() -> int:
 
 
 def _sanitized_adapter_env() -> dict[str, str]:
-    """Remove OpenAI settings from the generic worker environment."""
+    """Remove chat and embedding credentials from generic worker environments."""
     env = os.environ.copy()
+    provider_secrets = {
+        "DEEPSEEK_API_KEY",
+        "SILICONFLOW_API_KEY",
+        "QWEN_API_KEY",
+        "WHATAI_API_KEY",
+        "EMBEDDINGAPI",
+    }
     for name in list(env):
-        if "OPENAI" in name.upper():
+        if "OPENAI" in name.upper() or name.upper() in provider_secrets:
             env.pop(name, None)
     return env
 
@@ -1020,6 +1213,7 @@ def _run_adapter_with_deadline(
     gptscan_timeout: int,
     openai_api_key: str,
     openai_api_base: str,
+    gptscan_model: str = "",
     mapping: dict[tuple[str, str], str] | None = None,
     quarantine_root: Path,
     input_kind: str | None = None,
@@ -1040,7 +1234,11 @@ def _run_adapter_with_deadline(
             "out_dir": str(staged_out),
             "target_root": str(target_root),
             "smartbugs_dir": str(smartbugs_dir) if smartbugs_dir is not None else None,
-            "timeout": max(1, int(math.ceil(float(timeout)))),
+            "timeout": (
+                float(timeout)
+                if tool_id == "smartian"
+                else max(1, int(math.ceil(float(timeout))))
+            ),
             "gptscan_timeout": gptscan_timeout,
             "ready_path": str(ready_path),
             "input_kind": input_kind or classify_target_input(contract_path) or "sol",
@@ -1049,8 +1247,15 @@ def _run_adapter_with_deadline(
         if compilation_bundle is not None:
             request["compilation_bundle"] = compilation_bundle.model_dump(mode="json")
         if tool_id == "gptscan":
-            request["openai_api_key"] = openai_api_key
-            request["openai_api_base"] = openai_api_base
+            resolved_api_base = _resolve_gptscan_api_base(openai_api_base)
+            request["openai_api_key"] = _resolve_gptscan_api_key(
+                openai_api_key,
+                resolved_api_base,
+            )
+            request["openai_api_base"] = resolved_api_base
+            request["gptscan_model"] = (
+                gptscan_model.strip() or _resolve_gptscan_model()
+            )
         command = [sys.executable, "-m", "toolrank.runner", _ADAPTER_WORKER_ARG]
         completed = run_process_with_deadline(
             command,
@@ -1670,6 +1875,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _die("--tool-solc-ranges must be a JSON object", 2)
     if tool_solc_ranges is not None and not isinstance(tool_solc_ranges, dict):
         _die("--tool-solc-ranges must be a JSON object", 2)
+    gptscan_api_base = _resolve_gptscan_api_base()
     return run_targets(
         args.contract_or_dir,
         args.results_root,
@@ -1679,8 +1885,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         smartbugs_dir=args.smartbugs_dir or None,
         timeout=args.timeout,
         gptscan_timeout=args.gptscan_timeout,
-        openai_api_key=_env_value("OPENAI_API_KEY"),
-        openai_api_base=_env_value("OPENAI_API_BASE", "OPENAI_BASE_URL"),
+        openai_api_key=_resolve_gptscan_api_key(api_base=gptscan_api_base),
+        openai_api_base=gptscan_api_base,
         jobs=args.jobs,
         write_lakes_output=not args.no_lakes_output,
         compilation_bundle=args.compilation_bundle or None,

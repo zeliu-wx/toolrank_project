@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Literal
 
 from toolrank.report_validity import OUTPUT_CLEANUP_FAILURE_RETURN_CODE
 from toolrank.schemas import ToolExecutionStatus
+
+
+_USABLE_TOOL_STATUSES = frozenset({"SUCCESS", "PARTIAL"})
 
 
 def aggregate_tool_status_history(
@@ -59,3 +63,19 @@ def aggregate_tool_status_history(
         ),
         detail="all input runs failed or timed out",
     )
+
+
+def overall_execution_status(
+    statuses: Mapping[str, ToolExecutionStatus],
+    *,
+    fatal_cleanup_failure: bool = False,
+) -> Literal["executed", "partial", "failed"]:
+    """Classify a selected-tool batch without discarding usable current output."""
+    if fatal_cleanup_failure or not statuses:
+        return "failed"
+    values = [status.status for status in statuses.values()]
+    if not any(value in _USABLE_TOOL_STATUSES for value in values):
+        return "failed"
+    if all(value == "SUCCESS" for value in values):
+        return "executed"
+    return "partial"

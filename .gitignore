@@ -39,6 +39,7 @@ docker/vendor/gptscan/src/output.json.metadata.json
 docker/vendor/securify2/out/
 
 # Private/local knowledge bases (kept out of the GitHub release)
+toolcards/.private/
 toolcards/*passage*.json
 !toolcards/passage_store.json
 toolcards/vector_index/*

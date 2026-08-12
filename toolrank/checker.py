@@ -6,6 +6,7 @@ import math
 
 from toolrank.action_contract import action_id_for
 from toolrank.assignment_evidence import complement_strength_against_primary
+from toolrank.ownership_evidence import category_ownership_panel
 from toolrank.plan_runtime import (
     budget_usage,
     estimated_budget,
@@ -95,6 +96,21 @@ def check_decision(
             _add(failures, "SELECTED_ACTION_NOT_LEGAL")
 
     required = list(dict.fromkeys(context.required_categories))
+    canonical_panels = {
+        category: category_ownership_panel(
+            context,
+            matrix.evidence_cards,
+            category,
+            matrix.budget_profile,
+        )
+        for category in required
+    }
+    if set(matrix.ownership_panel) != set(required):
+        _add(failures, "OWNERSHIP_PANEL_SCOPE_MISMATCH")
+    for category, canonical_panel in canonical_panels.items():
+        if matrix.ownership_panel.get(category) != canonical_panel:
+            _add(failures, f"OWNERSHIP_PANEL_NOT_CANONICAL:{category}")
+
     assignments = {assignment.category: assignment for assignment in certificate.category_assignments}
     if len(assignments) != len(certificate.category_assignments) or set(assignments) != set(required):
         _add(failures, "CATEGORY_SCOPE_MISMATCH")
@@ -134,7 +150,7 @@ def check_decision(
         if assignment.complement_tool != complement or assignment.status != "COMPLEMENT_ADDED":
             _add(failures, f"COMPLEMENT_ASSIGNMENT_INVALID:{category}")
 
-        panel = matrix.ownership_panel.get(category)
+        panel = canonical_panels.get(category)
         eligible = {
             candidate.tool: candidate
             for candidate in (panel.eligible_candidates if panel else [])

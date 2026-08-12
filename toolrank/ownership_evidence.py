@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from toolrank.assignment_evidence import complement_strength_against_primary
+from toolrank.assignment_evidence import (
+    MAX_COMPLEMENT_CANDIDATES,
+    complement_strength_against_primary,
+)
 from toolrank.plan_runtime import estimated_budget, within_budget
 from toolrank.schemas_v2 import (
     BudgetProfile,
@@ -193,18 +196,31 @@ def category_ownership_panel(
     eligible.sort(key=sort_key)
     under.sort(key=sort_key)
     rejected.sort(key=sort_key)
+    not_shortlisted = [
+        candidate.model_copy(update={"eligibility": "not_shortlisted"})
+        for candidate in eligible[MAX_COMPLEMENT_CANDIDATES:]
+    ]
+    eligible = eligible[:MAX_COMPLEMENT_CANDIDATES]
     if eligible:
         status = "COMPLEMENT_AVAILABLE"
         reason = ""
     else:
         status = "PRIMARY_ONLY_NO_COMPLEMENT"
-        reason = "NO_EVIDENCE_STRONGER_COMPLEMENT_WITH_VERIFIABLE_BUDGET"
+        reason = (
+            "PRIMARY_COMPARISON_BASELINE_UNRELIABLE"
+            if any(
+                item.strength.basis == "PRIMARY_BASELINE_UNRELIABLE"
+                for item in rejected
+            )
+            else "NO_EVIDENCE_STRONGER_COMPLEMENT_WITH_VERIFIABLE_BUDGET"
+        )
     return CategoryOwnershipPanel(
         category=category,
         diagnostic=category_group(context, category),
         primary_decision=decision,
         assignment_status=status,
         eligible_candidates=eligible,
+        not_shortlisted_candidates=not_shortlisted,
         under_evidenced_candidates=under,
         rejected_candidates=rejected,
         primary_only_reason=reason,

@@ -7,9 +7,11 @@
 Use this contract whenever code changes target profiling, the Stage 1 score
 domain, historical runtime evidence, Stage 2 category evidence,
 action/certificate schemas, adapter dispatch, execution status, report
-promotion, CEGO sampling, shared compiler artifacts, dynamic knowledge-base
-publication, CLI results, finding fusion, or the persisted final-report
-presentation. These layers share one breaking
+promotion, CEGO proposal generation, shared compiler artifacts, dynamic knowledge-base
+publication, local-private knowledge selection, release-container architecture,
+chat-provider configuration, Securify image lifecycle, CLI results, finding
+fusion, or the persisted final-report presentation. These
+layers share one breaking
 `screc_v2` boundary; migrating only one consumer creates a runnable but
 semantically inconsistent pipeline.
 
@@ -22,6 +24,7 @@ profile_sources(sources) -> {"solc", "loc", "avg_cyc", "max_cyc", "sum_cyc", "ma
 profile_file(path, *, dataset_root=None) -> canonical Gower profile
 build_artifact(*, corpus_root, manifest_path, generated_at=None) -> dict
 load_profiles(path) -> ProfileKB
+resolve_static_toolcard_snapshot(toolcards_dir) -> StaticToolcardSnapshot
 classify_target_input(path) -> Literal["sol", "bytecode", "runtime"] | None
 source_entrypoints(source_files, project_root) -> list[Path]
 PerformanceKnowledgeBase.model_validate(payload) -> PerformanceKnowledgeBase
@@ -57,7 +60,18 @@ KbUpdateService.update(*, pdf, kb_root, dry_run=False, work_dir=None) -> KbUpdat
 load_current_generation(kb_root) -> LoadedKnowledgeGeneration
 publish_generation(*, kb_root, performance_kb, passage_store, vector_index, rejects, created_at, run_id, old_pointer_bytes, ...) -> PublishResult
 recover_kb_root(kb_root) -> RecoveryResult
+resolve_api_key_from_env(base_url) -> str
+_resolve_gptscan_api_base(explicit="") -> str
+_resolve_gptscan_api_key(explicit="", api_base="") -> str
+_resolve_gptscan_model() -> str
+_inspect_docker_image(image) -> Literal["exists", "missing", "error"]
+_run_securify2_build_process(command, *, cwd, env, display_command=None, redactions=()) -> int
 ```
+
+`StaticToolcardSnapshot` owns
+`performance_db_path`, `contract_profiles_path`, `passage_store_path`,
+`vector_index_path`, and `private_active`. Consumers must use these resolved
+paths together instead of reconstructing a static knowledge path independently.
 
 Production dynamic-KB commands are:
 
@@ -66,6 +80,12 @@ lakes kb ingest PDF --kb-root ROOT --toolcards-dir TOOLCARDS [--dry-run]
 lakes-kb-update ingest PDF --kb-root ROOT --toolcards-dir TOOLCARDS [--dry-run]
 lakes-kb-update validate --kb-root ROOT
 lakes-kb-update recover --kb-root ROOT
+```
+
+The canonical release build is:
+
+```text
+docker build [--build-arg LAKES_IMAGE_PLATFORM=linux/amd64|linux/arm64] -t IMAGE .
 ```
 
 Executable action IDs come only from `toolrank.action_contract.action_id_for`.
@@ -99,15 +119,31 @@ Stage 1 evaluation IDs come only from
   sum(applicable negative w_D)`. Applicable `owner_ineligible` remains a hard
   rejection even without a quantitative link. Extra weight-like fields from
   an LLM response are ignored because the model never owns evidence weights.
-- Each logical CEGO proposal round owns exactly three sequential structured
-  samples at `temperature=0.0`. A valid omission is a primary-only vote for
-  that category; request failures and malformed samples abstain without
-  lowering the fixed two-vote threshold. A complement wins only with at least
-  two votes for the same tool. Its citations are the sorted, de-duplicated
-  union from samples that voted for that winner. Only this aggregate is
-  assembled and checked. A repair is a fresh three-sample round with the prior
-  checker verdict; all three unusable samples fail the round, while bounded
-  transport/repair exhaustion still returns the checked primary-only plan.
+- Each logical CEGO proposal round owns exactly one structured request at
+  `temperature=0.0`. The validated `CegoProposal` is passed directly to
+  `assemble_decision`; CEGO has no application-level sampling, voting,
+  abstention, or proposal aggregation. `OpenAICompatError` and schema-invalid
+  output become `CegoError`. The caller may start one fresh proposal round only
+  after RuleChecker rejects the preceding certificate and supplies its reasons.
+  Bounded repair exhaustion still returns the checked primary-only plan.
+- DACE owns one retrieval cell for every
+  `(required_category, primary_or_feasible_tool, PLAN_COMPOSITION)` key.
+  `PassageRetrievalDiagnostic` records the query, lexical/dense hit counts,
+  returned passage IDs, fusion method, and bounded reason codes. When a bound
+  dense index and embedding credential are available, retrieval combines BM25
+  and dense ranks with reciprocal-rank fusion. A missing index/credential or a
+  failed dense query retains deterministic BM25 results and exposes the exact
+  fallback reason; it must not silently become an empty evidence result.
+- `ActionByEvidenceMatrix.relevant_matrix_rows` contains exactly one typed row
+  for the primary and every feasible candidate in every required category.
+  Each row retains the matrix-owned Stage 1 score/benchmark lineage, category
+  evidence, all four evidence slots, applicability, target/compiler
+  constraints, and runtime provenance. CEGO serializes the complete Stage 1
+  lineage once at the prompt top level. For each legal eligible candidate it
+  includes one compact typed row without the nested Stage 1 copy, plus
+  `stage1_tool_ref` and canonical linked evaluation IDs that resolve against
+  that top-level object. It never dumps the full matrix or duplicates Stage 1
+  lineage inside candidate rows.
 - `profile_sources` is the single owner of the Gower compiler bucket,
   effective LOC, and five structural dimensions. Runtime target analysis and
   the offline benchmark-profile builder consume that same result; neither may
@@ -139,12 +175,32 @@ Stage 1 evaluation IDs come only from
   bandwidth linkage; it never refits or repairs a stale artifact. The builder,
   manifest, migration audit, and parity tests must be present in a clean
   checkout.
-- `_ranges` is derived only from emitted samples. `_bandwidth` is selected only
-  from the declared grid over those normalized profiles and is bound to the
-  profile digest, ranges, seed, sample size, and method. Duplicate physical or
+- `_ranges` is derived only from emitted samples. Published `_bandwidth` is
+  selected from the declared grid by leave-one-out likelihood over every
+  normalized emitted profile and is bound to the profile digest, ranges, seed,
+  full sample size, and method. Duplicate physical or
   content-identical corpora cannot contribute scene mass twice; exclusions are
   explicit manifest rows. Target AST failure retains source facts for
   diagnostics but yields no Gower scene instead of synthetic zero complexity.
+- A source checkout may activate a local-private static snapshot only when all
+  four runtime artifacts exist:
+  `toolcards/.private/performance_db.json`,
+  `toolcards/.private/contract_profiles.json`,
+  `toolcards/.private/passage_store.json`, and
+  `toolcards/.private/vector_index/index.json`. They are selected as one unit.
+  The Performance/profile pair must pass its production loaders, exactly retain
+  current public rows/datasets, and add matching unique dataset identities.
+  The PassageStore/index pair must pass its production loaders, exactly retain
+  the public passage and embedding prefixes, preserve passage ID order/count,
+  use the same provider/model and embedding dimension, and bind the exact
+  private store digest. Every private-only passage must explicitly carry
+  `linked_evaluation_ids=[]` and no performance-observation links, so it stays
+  qualitative. A missing artifact, stale prefix, mismatched delta, vector
+  mismatch, or digest mismatch fails closed before recommendation. Any original
+  private recovery source is provenance, not a runtime activation artifact.
+  Explicit `kb_root` generation selection bypasses the complete static overlay.
+  Git, wheel package-data, and Docker context rules must exclude the entire
+  `.private` directory.
 - Normalized scene weights are bounded numerical values. Clamp only
   tolerance-sized drift at `0` or `1` (for example,
   `1.0000000000000002 -> 1.0`) before constructing bounded schemas; materially
@@ -231,18 +287,32 @@ Stage 1 evaluation IDs come only from
   bound is also `confirmed_weak`. All other categories are
   `PRIMARY_SUFFICIENT` and expose no complement candidate to DACE, CEGO,
   assembly, or RuleChecker.
+- Category `R_hat` and `n_eff` use the normalized `w_D` values owned by the
+  Stage 1 scene: `R_hat=sum(w_D*detected_D)/sum(w_D*total_D)` and
+  `n_eff=sum(w_D*total_D)`. Raw KDE density remains audit provenance and cannot
+  make the `n_eff >= 15` decision depend on an omitted common normalization
+  constant.
 - `complement_strength_against_primary` is the single quantitative gate shared
   by the primary diagnostic, ownership panel/CEGO surface, and RuleChecker. A
   candidate first requires `R_hat > 0` and `n_eff >= 15`. When the primary also
-  has positive count-qualified evidence, the candidate-minus-primary Newcombe
-  Recall-gap lower bound must be strictly positive. A missing, non-positive, or
-  `n_eff < 15` primary row is an unreliable comparison baseline; in that case a
-  positive count-qualified candidate may proceed without a fabricated gap.
+  has count-qualified evidence, the candidate-minus-primary Newcombe Recall-gap
+  lower bound must be strictly positive. A missing or `n_eff < 15` primary row
+  is an unreliable comparison baseline; search may remain diagnostic, but no
+  candidate may pass the stronger-than-primary ownership gate. A
+  count-qualified non-positive primary is a reliable zero baseline and still
+  uses the same positive-lower-gap requirement.
 - Passing the shared strength gate never overrides feasibility, applicable
   evidence, known runtime, or legal-budget checks. Each candidate is evaluated
   against the primary itself: an infeasible strong peer cannot make another,
   weaker candidate eligible. Search failure retains the primary and records
   `PRIMARY_ONLY_NO_COMPLEMENT`.
+- After every hard gate passes, rank complements by descending `R_hat`,
+  descending `n_eff`, then tool ID and expose at most five legal candidates per
+  category. Overflow candidates remain complete typed matrix rows with
+  `NOT_SHORTLISTED` eligibility and cannot be selected by CEGO or assembly.
+  RuleChecker rebuilds the canonical partition from `Stage2EvidenceContext`,
+  matrix-owned evidence cards, and the matrix budget; it rejects any supplied
+  ownership panel whose partitions differ.
 - The internal taxonomy uses the long-form DASP identifiers at every boundary.
   At minimum, `denial_service -> denial_of_service`,
   `unchecked_low_calls`/`unchecked_ll_calls -> unchecked_low_level_calls`, and
@@ -282,10 +352,12 @@ Stage 1 evaluation IDs come only from
   `returncode=124, timed_out=True`; cleanup time is not analyzer grace.
 - Smartian's own integer fuzz limit must finish before the scheduler-owned
   outer deadline so its wrapper can normalize and promote `result.json`.
-  `SMARTIAN_REPORT_SHUTDOWN_RESERVE_SECONDS == 3` is the measured, rounded-up
-  shutdown/report reserve, so `inner=max(1, outer-3)`. The outer deadline is
-  never extended. Budgets at or below three seconds may therefore end as a
-  normal typed timeout rather than a successful Smartian report.
+  `SMARTIAN_LIFECYCLE_RESERVE_SECONDS == 6` is the bounded sum of the
+  two-second startup allowance and four-second report-normalization allowance,
+  so `inner=max(1, floor(outer-6))`. The exact positive floating-point outer
+  deadline is never rounded upward or extended. Budgets at or below six
+  seconds may therefore end as a normal typed timeout rather than a successful
+  Smartian report.
 - `CompositionPlan.category_owners` and `FusedFinding.source_tools` are additive.
   Fusion groups only identical non-empty `(category, location)` keys and keeps
   raw variants plus inconsistent-field markers.
@@ -324,10 +396,13 @@ Stage 1 evaluation IDs come only from
   fields or rate-like values, ambiguous rate language, and matrix tools absent
   from the checked owner sets fail semantic validation with
   `LLM_RESPONSE_SEMANTICS_INVALID`; the text is never rewritten. Ordinary plan
-  language such as `total runtime` remains valid.
+  language such as `total runtime` and decimal durations such as
+  `0.5 minutes` remain valid.
 - Top-level `PipelineStatus` owns whether later fields may exist:
-  `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, or
-  `EXECUTION_FAILED`.
+  `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`,
+  `EXECUTED_PARTIAL`, or `EXECUTION_FAILED`. `EXECUTED_PARTIAL` requires at
+  least one usable current-run tool status plus a fused report;
+  `EXECUTION_FAILED` means no selected tool produced usable current-run output.
 - Production execution is fresh-only. Before running any contracts, the runner
   removes or atomically quarantines each selected tool's directory under the
   run-scoped results root; unselected tool directories are left untouched.
@@ -351,14 +426,42 @@ Stage 1 evaluation IDs come only from
 - The packaged Docker image is the canonical execution environment. LAKES,
   the Smartian runner, `.NET`, and `Smartian.dll` execute inside that image;
   `/work/docker/vendor/smartian/build/Smartian.dll` is therefore a container-
-  local path, not a macOS host dependency. Any absolute compatibility symlink
-  created in the image for Smartian's build-time resource lookup also remains
-  inside the container. SmartBugs analyzers use the image's internal Docker
-  daemon and therefore require the documented privileged container launch.
+  local path, not a macOS host dependency. The build checks out the pinned
+  `SMARTIAN_REF` only to supply the matching Nethermind/EVMAnalysis dependency
+  scaffold, compiles the tracked
+  `/work/docker/vendor/smartian/src/Smartian.fsproj` directly into that
+  persistent container-local build path, verifies the DLL, and removes the
+  temporary checkout/scaffold. No absolute compatibility symlink or host path
+  participates. SmartBugs analyzers use the image's internal Docker daemon and
+  therefore require the documented privileged container launch.
+  `LAKES_IMAGE_PLATFORM` defaults to BuildKit's native `$BUILDPLATFORM`.
+  The Smartian SDK builder always runs on `$BUILDPLATFORM`, selects
+  `linux-x64` or `linux-arm64` only as the target runtime identifier, and the
+  final image installs the matching native `.NET` runtime. Never execute the
+  .NET SDK/runtime through QEMU as part of the normal Apple-Silicon build.
+  SmartBugs' analyzer images remain pinned to `LAKES_DOCKER_PLATFORM=linux/amd64`.
+  Because official Linux `solc` releases are x86-64, an ARM final image adds
+  the `amd64` Debian architecture plus `libc6:amd64` and
+  `libstdc++6:amd64`; the Docker host's existing platform emulator then runs
+  those compilers. Do not install an in-container all-architecture QEMU bundle:
+  cross-platform inner Docker execution already requires host binfmt support.
+  The slim final image contains the `.NET` runtime rather than the SDK, so
+  preflight uses `dotnet --info` and enables invariant globalization before
+  executing Smartian; `dotnet --version` is not a valid runtime-only probe.
+  GPTScan retains its historical `z3-solver==4.11.2.0` environment on x86-64.
+  ARM builds substitute the first compatible pinned wheel,
+  `z3-solver==4.13.0.0`, install the pinned Falcon source without dependency
+  re-resolution, and verify both versions by import during the image build.
   Running `python -m toolrank` directly on a host is a separate development
   mode: it must explicitly provide a host-valid Smartian DLL override if that
   mode is supported, and failure to resolve `/work` there does not diagnose the
   packaged image.
+- The release wheel contains the default `toolcards` package, its root JSON
+  knowledge files, and `toolcards/vector_index/index.json`. The recommendation
+  CLI resolves that installed sibling package as its default read-only
+  knowledge directory. Dynamic ingestion still requires an explicit
+  `--toolcards-dir` to identify the caller-selected baseline and never writes
+  into packaged data.
 - `.bin`/`.hex` inputs are normalized as creation bytecode; `.rt`, `.runtime`,
   `.rt.bin`, and `.runtime.hex` forms are normalized as runtime bytecode and
   dispatched with runtime mode. Unsupported adapter/input pairs fail before
@@ -429,14 +532,35 @@ Stage 1 evaluation IDs come only from
   generation when one exists and never changes the pointer.
 - Dynamic ingestion credentials come only from the environment. Embedding
   index construction disables any fallback that would place an API key in a
-  subprocess argv. `--toolcards-dir` is explicit because an installed wheel
-  cannot assume a source-relative packaged knowledge directory.
+  subprocess argv. `--toolcards-dir` remains explicit so ingestion records the
+  selected read-only baseline independently from its writable KB root.
 - Execution plans and serialized results never contain API keys. The engine
   passes a key only through the runner child's ephemeral environment; generic
   adapter workers receive a sanitized environment and no key in their private
   request. Only GPTScan receives it through private stdin and an environment-to-
   in-memory-argv wrapper. Secret-forwarding CLI flags are forbidden and streamed
   output is redacted.
+- Chat defaults are the official DeepSeek endpoint
+  `https://api.deepseek.com` and model `deepseek-v4-flash`. Official DeepSeek
+  hosts resolve `DEEPSEEK_API_KEY` before generic `OPENAI_API_KEY`;
+  SiliconFlow hosts resolve `SILICONFLOW_API_KEY` before generic
+  `OPENAI_API_KEY`; every other host may resolve only `OPENAI_API_KEY`.
+  Provider-specific credentials must never cross host boundaries. GPTScan may
+  retain explicit OpenAI-compatible overrides, but its no-override path uses
+  the same official DeepSeek base, model, and endpoint-aware key resolution.
+  Structured requests to an official DeepSeek host explicitly disable the
+  provider's default thinking mode so temperature zero remains effective, and
+  enable DeepSeek JSON output; custom compatible hosts receive neither field.
+- SiliconFlow is an embedding provider only. Its Qwen embedding endpoint and
+  credential are independent from CEGO, report explanation, KB extraction,
+  and GPTScan chat completion.
+- Securify first inspects its exact versioned Docker image tag. All three
+  inspect attempts must explicitly report `No such image` before a build is
+  allowed; one successful attempt reuses the image, and timeout/daemon/context/
+  permission ambiguity fails closed. Inspect, build, and run use the current
+  Docker user connection without interactive `sudo`. BuildKit output is
+  captured in a regular temporary file and replayed after the direct Docker
+  client exits, so a descendant-held pipe cannot block the adapter worker.
 
 ### 4. Validation & Error Matrix
 
@@ -448,6 +572,11 @@ Stage 1 evaluation IDs come only from
 | Runtime file target imports local Solidity dependencies | profile the same safe import closure as the offline builder |
 | Profile artifact count, path, compiler, range, digest, coverage ledger, or bandwidth linkage is stale | `ProfileArtifactError`; never repair or refit at runtime |
 | Target source facts exist but no canonical compiler emits a complete AST | retain diagnostics, return no scene evidence |
+| None of the four local-private runtime artifacts exists | use all four tracked public static artifacts |
+| All four private artifacts pass production loaders, exact public-extension checks, vector binding, and qualitative-link checks | use the complete private snapshot and emit the local-private warning |
+| One to three private runtime artifacts exist, any path is not a regular file, or any artifact is invalid/stale/mismatched | `ValueError` before Stage 1; never mix public and private artifacts |
+| A private-only passage has `linked_evaluation_ids=None`, a non-empty evaluation link, or any performance-observation link | `ValueError`; private-only knowledge must remain explicitly qualitative |
+| Explicit `kb_root` is supplied | use its dynamic Performance/PassageStore/vector generation and the public static profile artifact; bypass every local-private static artifact |
 | No feasible tool | `Stage1Status.NO_FEASIBLE_TOOL`; no Stage 2 objects |
 | No support mass `>= 0.2` | `NO_PRIMARY_WITH_SUFFICIENT_SUPPORT`; no fallback tool |
 | ToolCard contains runtime but the Performance KB does not | runtime remains unknown |
@@ -469,7 +598,8 @@ Stage 1 evaluation IDs come only from
 | Primary evidence otherwise sufficient | `PRIMARY_SUFFICIENT`; no complement slate exists |
 | Complement `R_hat <= 0`, `n_eff < 15`, or runtime missing | exclude complement; retain primary owner |
 | Positive count-qualified primary and candidate-minus-primary Newcombe lower bound `<= 0` | exclude that candidate as not evidence-stronger; do not expose it to CEGO |
-| Primary row/rate missing, primary `R_hat <= 0`, or primary `n_eff < 15`; candidate has `R_hat > 0,n_eff >= 15` | strength gate may pass without a numeric gap; all feasibility/runtime/evidence/budget gates still apply |
+| Primary row/rate missing or primary `n_eff < 15`; candidate has `R_hat > 0,n_eff >= 15` | open diagnostic search but fail the stronger-than-primary ownership gate because the comparison baseline is unreliable |
+| Primary has `R_hat = 0,n_eff >= 15`; candidate has `R_hat > 0,n_eff >= 15` | treat zero as a reliable baseline and require a strictly positive candidate-minus-primary Newcombe lower bound |
 | One stronger peer is infeasible while another feasible candidate is weaker than the primary | reject both as complements; retain primary-only ownership |
 | Weight differs from `0`/`1` only by configured floating tolerance | clamp before bounded schema construction |
 | Weight is materially outside `[0,1]` | schema validation error; do not hide it with clamping |
@@ -486,8 +616,8 @@ Stage 1 evaluation IDs come only from
 | Applicable cited positive relevance is equal to or below applicable negative relevance | RuleChecker rejection and bounded repair |
 | LLM emits its own `w_D` or other weight-like fields | ignore them; recompute only from matrix-owned Stage 1 rows |
 | Missing/irrelevant cited support | RuleChecker rejection and bounded repair |
-| CEGO category has fewer than two votes for the same complement | retain the primary-only owner for that category |
-| All three CEGO samples fail request or schema validation | fail that proposal round; bounded caller fallback remains checked primary-only |
+| The one CEGO request raises `OpenAICompatError` | raise `CegoError` for that proposal round; the bounded caller fallback remains checked primary-only |
+| The one CEGO response fails `CegoProposal` validation | raise `CegoError`; never reinterpret malformed output as primary-only, a vote, or an abstention |
 | Repair exhaustion | checked primary-only certificate, never an ownerless/stop action |
 | Source-only plan or bytecode/runtime input | compilation `NOT_APPLICABLE`; invoke no compiler |
 | Required shared bundle has no common installed solc, malformed output, missing component, timeout, or digest mismatch | fail before every analyzer worker; all selected tools remain `NOT_RUN` |
@@ -496,11 +626,17 @@ Stage 1 evaluation IDs come only from
 | Shared route exists but its invocation fails, times out, never runs, or fails cleanup before success | `consumed=false` in both per-tool and top-level provenance |
 | Mixed input history has at least one validated shared-source success before a later failure/cleanup `74` | preserve `consumed=true` and the current per-tool status manifest; disable harvest only |
 | POSIX group leader exits between TERM and KILL and `killpg` raises `PermissionError` | bounded direct-child fallback; return typed `124/TIMEOUT`, never an exception |
-| Smartian outer budget is greater than three seconds | run the inner fuzzer for `outer-3` seconds and retain the original outer hard deadline |
-| Smartian outer budget is three seconds or less | inner limit is one second; a clean report is best-effort and otherwise the result is typed timeout |
+| Smartian outer budget is greater than six seconds | run the inner fuzzer for `floor(outer-6)` seconds and retain the exact original outer hard deadline |
+| Smartian outer budget is six seconds or less | inner limit is one second; a clean report is best-effort and otherwise the result is typed timeout |
 | Packaged Docker execution resolves Smartian at `/work/...` | execute it inside the image; no macOS Smartian path or host bind mount is required |
+| Native Apple-Silicon build would execute the x64 .NET SDK/runtime under QEMU | keep the builder and final image native; cross-target only the Smartian runtime identifier |
+| ARM image runs an official Linux `solc` without its x86-64 loader/libraries | install `libc6:amd64` and `libstdc++6:amd64`; `solc --version` must succeed during live release verification |
+| Runtime-only `.NET` image is probed with `dotnet --version` or before invariant globalization is enabled | use `dotnet --info` with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, then execute the Smartian usage smoke |
+| GPTScan's historical Z3 pin has no ARM wheel | select the explicit architecture-specific Z3 pin, patch only the pinned Falcon dependency metadata, install Falcon without dependency resolution, and import-check both |
+| Requested release platform is neither `linux/amd64` nor `linux/arm64` | fail the Smartian build stage; never guess a runtime identifier |
 | Host-Python development execution uses the container-only Smartian default without an override | report a host-mode configuration error; do not infer that the packaged Docker image is missing Smartian |
-| Tool timeout/failure | continue surviving owners; mark partial/unavailable categories |
+| At least one selected tool succeeds and another fails/times out | preserve and fuse valid current-run output; return `EXECUTED_PARTIAL` and mark partial/unavailable categories |
+| No selected tool succeeds | return `EXECUTION_FAILED`; never label failure-only or timeout-only output partial |
 | Accepted tool finding has arbitrary nested/tool-specific fields or its own `raw` key | preserve the complete outer finding object verbatim; normalized fields remain a separate parser projection |
 | SmartBugs converts a native finding and LAKES adds `raw_name`/`category`/`ignored` | treat the resulting enriched `result.json` element as the accepted verbatim boundary; preserve it unchanged from parsing through `category_results` |
 | Tool-native tar/SARIF contains fields absent from SmartBugs `result.json` | retain the native artifact under raw run artifacts; do not classify the final category view as lossy relative to a boundary it does not promise |
@@ -510,7 +646,7 @@ Stage 1 evaluation IDs come only from
 | Explanation client is absent/invalid, request raises `OpenAICompatError`, response is multi-paragraph/malformed, Checker is disabled, or verdict is not `ACCEPT` | persist a non-empty deterministic fallback with null model and stable limitation; execute the unchanged plan |
 | Explanation response attempts to add plan-control fields | schema rejection and deterministic fallback; never apply any emitted control |
 | Explanation text repeats category statistics, uses an ambiguous rate value, or names an unselected matrix tool | semantic rejection with `LLM_RESPONSE_SEMANTICS_INVALID`; preserve the checked plan and persist a labelled fallback without rewriting model prose |
-| Explanation text says `total runtime` without using `total` as an audit field | accept the otherwise valid qualitative LLM paragraph; do not confuse ordinary budget language with `detected/total` |
+| Explanation text says `total runtime` or `0.5 minutes` without using a statistical audit field | accept the otherwise valid qualitative LLM paragraph; do not confuse ordinary budget prose with `detected/total` or a rate |
 | Category-result owner order/status or availability contradicts the checked/top-level report | schema validation error; do not persist a contradictory final report |
 | Stale report in a selected tool directory | delete before analyzer invocation; never treat as success |
 | Report for a contract removed from a directory target | remove with the selected tool directory before batch execution |
@@ -523,6 +659,12 @@ Stage 1 evaluation IDs come only from
 | Selected output cannot be deleted or quarantined | return `74`; do not execute, harvest, fuse, or throw an uncaught cleanup exception |
 | Explicit jobs are fewer than selected tools | reject the composition; never switch the estimate from max to sum |
 | API key supplied for execution | ephemeral GPTScan-only delivery; absent from plans, argv, reports, logs, and non-GPTScan environments |
+| Default chat configuration has no explicit provider override | use `https://api.deepseek.com`, `deepseek-v4-flash`, and `DEEPSEEK_API_KEY` |
+| DeepSeek/SiliconFlow key exists but resolved chat host is unrelated | ignore the provider key; only generic `OPENAI_API_KEY` may configure a custom host |
+| Securify image inspect succeeds on any retry | cache/reuse the exact tag and do not build |
+| Every Securify image inspect attempt explicitly reports `No such image` | build the exact tag once, then cache it only after success |
+| Securify inspect times out or reports daemon/context/permission ambiguity | fail closed; do not build, cache, or run |
+| Securify execution would require an interactive sudo prompt | invoke direct Docker instead; never block the noninteractive worker on `sudo` |
 | MinerU output is missing/ambiguous, LLM JSON is malformed, or document/PDF digests differ | abort extraction; do not publish a generation |
 | Provenance excerpt is absent from the named block, or a table locator lacks an exact valid cell | reject that candidate with a structured provenance reason |
 | Tool/category/relation/tag/unit/range/count/link validation fails | reject only that candidate; accepted candidates remain independently mergeable |
@@ -547,6 +689,15 @@ Stage 1 evaluation IDs come only from
   benchmark artifact, a fallback AST is labeled with the first attempted
   compiler, imports are included on only one profiling path, or a parity test
   imports a builder excluded from Git.
+- Local-private good: all four ignored runtime artifacts exactly extend the
+  current public Performance/profile/Passage/vector data. The source checkout
+  uses them together, reports that fact, and the appended private passages have
+  explicit empty quantitative links.
+- Local-private base: `.private` is absent in a release checkout, so the same
+  code uses only the four tracked public artifacts.
+- Local-private bad: activate only Performance/profile while silently reading
+  the public PassageStore, trust a vector index by filename alone, retain a
+  stale public prefix, or let private prose inherit a quantitative source link.
 - Base: no complement qualifies, every requested category remains `[a]`, and
   the legal action is `run_primary`.
 - Bad: count confidence changes Stage 1 from `a` to `b`, a complement replaces
@@ -600,11 +751,20 @@ Stage 1 evaluation IDs come only from
   rate-like values, or an unselected tool is also rejected rather than edited.
 - Container-execution good: `lakes:latest` contains the Smartian runner, DLL,
   and `.NET`; `/work/...` resolves inside the container without a host mount.
+- Container-architecture good: an Apple-Silicon build produces a native ARM
+  outer image, starts the native Smartian DLL, and executes an official x86-64
+  `solc` through the host platform emulator plus the two packaged x86 runtime
+  libraries. The runtime-only `.NET` preflight uses `dotnet --info`, and
+  GPTScan imports the pinned ARM-compatible Z3/Falcon pair.
 - Container-execution base: a developer invokes the host Python CLI and passes
   an explicit host-valid Smartian DLL path for that non-production mode.
 - Container-execution bad: treat a host Python `/work` lookup failure as proof
   that the packaged image is broken, or require the production container to
-  read `/Users/liuze/...` from macOS.
+  read a developer-specific absolute macOS path.
+- Container-architecture bad: force the outer image to `linux/amd64` on an ARM
+  host so the .NET runtime itself runs under QEMU, or install the full
+  `qemu-user-static` package inside the image instead of relying on the host
+  platform contract already required by SmartBugs.
 - Primary-evidence good: `R_hat=0,n_eff=15` is confirmed weak and opens search;
   `R_hat>0,n_eff>=15` without a credible peer gap closes search.
 - Primary-evidence base: missing or low `n_eff` opens search as under-evidenced,
@@ -612,9 +772,10 @@ Stage 1 evaluation IDs come only from
 - Complement-strength good: primary `R_hat=0.2,n_eff=100` and candidate
   `R_hat=0.8,n_eff=100` produce a positive Newcombe gap lower bound; the
   candidate may enter the eligible panel if every non-statistical gate passes.
-- Complement-strength base: the primary baseline is missing, non-positive, or
-  under-evidenced, so a positive count-qualified candidate may enter the panel
-  without claiming a numeric candidate-primary gap.
+- Complement-strength base: a missing or under-evidenced primary opens
+  diagnostic search but no candidate enters the legal panel because the
+  comparison baseline is unreliable. A count-qualified zero primary is a
+  reliable baseline and still requires a positive Newcombe lower bound.
 - Complement-strength bad: Smartcheck has positive count evidence but a lower
   category Recall than Slither, and is selected merely because infeasible
   Osiris opened search. Smartcheck must remain rejected and the checked plan
@@ -648,21 +809,22 @@ Stage 1 evaluation IDs come only from
 - Execution bad: native fallback runs tools serially, a timeout leaves a late
   report, return code zero without a valid report is marked success, or a key is
   embedded in `runner_command`/analyzer argv.
-- Timeout good: a five-second Smartian outer budget gives the fuzzer two
-  seconds, leaves report-shutdown time, and returns a valid current-run report
-  before the unchanged outer deadline.
-- Timeout base: a two-second Smartian outer budget reaches the hard boundary,
+- Timeout good: a 30-second Smartian outer budget gives the inner fuzzer 24
+  seconds while preserving six bounded lifecycle seconds and the unchanged
+  outer deadline.
+- Timeout base: a five-second Smartian outer budget reaches the hard boundary,
   returns `TIMEOUT/124`, promotes no report, and leaves no worker or dotnet
   process.
 - Timeout bad: give Smartian the entire outer budget internally, let macOS
   `PermissionError` escape from the second group signal, add unbounded cleanup
   grace, or convert the race into `FAIL`.
-- CEGO good: two of three valid samples choose `vandal` for one category, so
-  only citations from those two votes are unioned before one Checker call.
-- CEGO base: one sample fails and the other two omit a category, so the primary
-  remains its sole owner without reducing the two-vote threshold.
-- CEGO bad: check each raw sample, accept a 1/2 plurality after one abstention,
-  or merge citations from a sample that voted for another tool.
+- CEGO good: one valid structured proposal chooses `vandal` for one category,
+  `assemble_decision` constrains it against the matrix, and RuleChecker checks
+  that resulting certificate once.
+- CEGO base: the proposal omits a category, so the immutable primary remains
+  its sole owner for that category.
+- CEGO bad: call the model three times, vote or aggregate proposals, treat a
+  malformed response as an abstention, or merge citations across responses.
 - Shared-compilation good: Smartian and Vandal over one Solidity project receive
   projections carrying the same bundle ID after one compiler invocation; a
   concurrently selected Slither route remains `SOURCE_ONLY`.
@@ -679,6 +841,21 @@ Stage 1 evaluation IDs come only from
 - Dynamic-KB bad: accept an excerpt found in another block, guess a table row,
   create a second scene for the same dataset, expose an embedding key in argv,
   or publish one store before the others are valid.
+- Provider good: one `DEEPSEEK_API_KEY` drives official DeepSeek CEGO,
+  explanation, KB extraction, and GPTScan calls; SiliconFlow remains confined
+  to Qwen embeddings.
+- Provider base: a custom OpenAI-compatible host uses an explicit
+  `OPENAI_API_KEY`, base, and model without receiving either provider-specific
+  key.
+- Provider bad: send a SiliconFlow key to DeepSeek, send a DeepSeek key to a
+  custom host, or silently use the embedding endpoint for chat completion.
+- Securify good: an existing exact image tag is confirmed and reused, then the
+  analyzer runs through direct Docker without rebuilding or prompting.
+- Securify base: three explicit missing-image results cause one successful
+  build and cache insertion.
+- Securify bad: treat a daemon error as a missing image, cache a failed build,
+  pipe BuildKit output through a descendant-held stdout pipe, or prepend
+  noninteractive execution with `sudo`.
 
 ### 6. Tests Required
 
@@ -693,15 +870,29 @@ Stage 1 evaluation IDs come only from
   engine-mismatch, and legacy/mixed/stale rejection paths are asserted. A full
   rebuild replay must be byte-identical under a fixed timestamp and must retain
   the before/after weight and `t*` audit.
-- Stage 2: raw-density `R_hat`/`n_eff`, `15` boundaries, primary under-evidence,
+- Local-private snapshot: four-artifact public fallback, complete activation and
+  warning, every missing-artifact failure, stale Performance/profile/passage/
+  embedding prefix rejection, mismatched dataset delta, passage/vector ID and
+  order mismatch, embedding dimension/provider/model mismatch, store-digest
+  mismatch, explicit qualitative-only private links, explicit-`kb_root` bypass,
+  private-only BM25 fallback retrieval, and Git/wheel/Docker exclusion.
+- Stage 2: normalized-weight `R_hat`/`n_eff`, common-KDE-scale invariance,
+  `15` boundaries, primary under-evidence,
   confirmed-zero and credible-peer cases, candidate-minus-primary Newcombe
   lower-bound boundaries, unreliable-primary fallback, infeasible-strong-peer/
   feasible-weak-candidate isolation, primary-sufficient closed slates,
-  hard ineligibility, missing/over-budget runtime, evidence citation, action ID,
+  hard ineligibility, post-gate Top-5 ordering and overflow audit rows,
+  missing/over-budget runtime, evidence citation, action ID,
   repair exhaustion, primary-only fallback acceptance, exact Stage 1 lineage
   projection, zero/one/many passage links, invalid/cross-tool explicit links,
   duplicate evidence IDs, JSON round-trip, symmetric applicability, weighted
   positive/negative conflicts, and model-supplied weight tampering.
+- Retrieval/matrix: every category-primary/feasible-candidate action cell,
+  deterministic BM25 ranking, BM25+dense reciprocal-rank fusion, missing-key/
+  missing-index/query-failure diagnostics, lexical fallback preservation,
+  complete typed row coverage, one byte-equivalent top-level Stage 1 lineage,
+  compact legal-candidate projections without nested lineage, and a
+  full-category prompt-size regression bound.
 - Stage 3: ordered additive plan, max-times-file-count runtime, jobs boundary,
   owner filtering, shared-location provenance/conflicts, distinct locationless
   findings, timeout availability, measured per-tool runtime aggregation,
@@ -714,7 +905,26 @@ Stage 1 evaluation IDs come only from
   absence from explanation prompts/reports.
 - Cross-layer: trace one fixture through packet → context → matrix → certificate
   → checker → composition → fusion and assert the same primary/owner sets.
-- CLI: render every nullable boundary and `PipelineStatus` without legacy fields.
+- CLI: render every nullable boundary and `PipelineStatus`, including
+  `EXECUTED_PARTIAL`, without legacy fields.
+- Release packaging: build a fresh wheel and assert every default ToolCard/KB
+  JSON plus the vector index is present and resolves through the CLI default;
+  build or inspect a fresh pinned Docker context that excludes local Smartian
+  output, compiles the tracked project, and contains a runnable Smartian DLL
+  without a host path. On ARM, assert the final image architecture, native
+  `.NET --info`, `solc --version`, architecture-specific Z3/Falcon imports,
+  bundled profile count/bandwidth, and a short real Smartian run over a
+  compatible Solidity contract. `docker build --check .` must report no
+  Dockerfile warnings.
+- Provider configuration: assert official DeepSeek base/model defaults,
+  host-aware key precedence, no cross-provider fallback for custom hosts,
+  GPTScan inheritance/override precedence, sanitized generic workers, and
+  secret absence from requests, argv, output, and serialized reports.
+- Securify lifecycle: assert exact-tag reuse, three explicit-missing attempts
+  before build, retry recovery, ambiguous fail-closed behavior, build-launch/
+  build-result failure, cache insertion only after success, bounded build
+  output replay, and a production command containing direct `docker` with no
+  `sudo`.
 - Runner lifecycle: same-named ancestor reports and stale current-output reports
   cannot bypass analyzer invocation; reports for deleted directory-target
   contracts disappear; unselected tool directories remain untouched; fresh
@@ -738,7 +948,7 @@ Stage 1 evaluation IDs come only from
   allocations; Stage 1 non-interference; shared Stage 2/Checker/composition
   projection; static explicit-timeout preservation; concurrent maximum and
   sequential-input multiplication; separate DACE/CEGO labels/sources; exact
-  normal/native outer-timeout propagation; Smartian shutdown reserve; and
+  normal/native outer-timeout propagation; Smartian lifecycle reserve; and
   sub-second typed-timeout behavior without outer-deadline extension.
 - Execution boundary: normal/native result matrices for nonzero, timeout,
   semantic skip/failure, missing, malformed, wrong-shape, valid-empty, and
@@ -746,7 +956,8 @@ Stage 1 evaluation IDs come only from
   kill; startup-inclusive absolute deadline and early child exit; no late
   promotion; two-tool/two-input ordering; delete-or-quarantine and double-
   failure `74`; no fallback harvest; POSIX `PermissionError` during TERM/KILL;
-  bounded reap/drain; Smartian 5-second success and 2-second typed timeout.
+  bounded reap/drain; Smartian exact outer-deadline propagation and small-budget
+  typed timeout.
 - Input/adapter boundary: canonical category aliases in scores and counts;
   import roots, cycles, quoted fake imports, dependency-closure staging, secret/
   unrelated/symlink exclusion; creation/runtime normalization; mixed targets;
@@ -758,10 +969,10 @@ Stage 1 evaluation IDs come only from
 - Secret boundary: sentinel absent from serialized plans/results, persisted raw/
   fused reports, OS argv, logs, and generic adapter environments, while GPTScan
   receives it only through the private wrapper boundary.
-- CEGO voting: exactly three calls per round, fixed two-vote threshold under
-  abstention, primary-only omissions, same-tool category majority, winner-only
-  citation union, deterministic order, all-unusable failure, aggregate-only
-  Checker calls, and fresh three-call repair rounds.
+- CEGO proposal: exactly one call per round at temperature zero, direct strict
+  `CegoProposal` validation and assembly, explicit request/schema `CegoError`,
+  no application sampling/voting/abstention/aggregation, one Checker call per
+  certificate, and one fresh request for each bounded repair round.
 - Shared compilation: zero compiler calls for source-only and bytecode/runtime
   plans; one call for Smartian+Vandal; exact pragma/ToolCard/compiler
   intersection; minimal components; stable digests; ambiguous/missing/malformed/
@@ -777,6 +988,26 @@ Stage 1 evaluation IDs come only from
   behavior; CLI help; and secret absence from process argv.
 
 ### 7. Wrong vs Correct
+
+#### Wrong: infer consistency from partial file existence
+
+```python
+if private_performance.exists() and private_profiles.exists():
+    return private_performance, private_profiles  # RAG silently stays public
+```
+
+#### Correct: validate one exact public extension
+
+```python
+snapshot = resolve_static_toolcard_snapshot(toolcards_dir)
+# The resolver validates all four production artifacts, exact public prefixes,
+# matching Performance/profile deltas, vector order/dimensions, store digest,
+# and explicitly qualitative private-only passages before return.
+kb = load_performance_db(snapshot.performance_db_path)
+profiles = load_profiles(snapshot.contract_profiles_path)
+passages = load_passage_store(snapshot.passage_store_path)
+index = VectorIndex.load(snapshot.vector_index_path)
+```
 
 #### Wrong
 
@@ -972,21 +1203,21 @@ schedule.contract_count = max(1, features.execution_input_count)
 stage_only(entrypoint, dependency_closure(entrypoint, root))
 ```
 
-#### Wrong: plurality voting and sample-level checking
+#### Wrong: application-level CEGO sampling and voting
 
 ```python
-samples = [call_cego() for _ in range(3)]
-winner = Counter(valid_votes).most_common(1)[0][0]
-for sample in samples:
-    check_decision(assemble_decision(sample))
+responses = [call_cego(temperature=0.0) for _ in range(3)]
+proposal = majority_vote(responses)
+verdict = check_decision(assemble_decision(proposal), context, matrix)
 ```
 
-#### Correct: fixed majority, then one checked aggregate
+#### Correct: one proposal, then one checked certificate
 
 ```python
-samples = [call_cego(temperature=0.0) for _ in range(3)]
-aggregate = aggregate_with_fixed_threshold(samples, required_votes=2)
-verdict = check_decision(assemble_decision(aggregate), context, matrix)
+proposal = CegoProposal.model_validate(call_cego(temperature=0.0))
+certificate = assemble_decision(proposal.model_dump(), context, matrix, budget)
+verdict = check_decision(certificate, context, matrix)
+# A fresh single request occurs only if this verdict is rejected.
 ```
 
 #### Wrong: decorative/private compilation
@@ -1014,10 +1245,10 @@ os.killpg(proc.pid, signal.SIGKILL)  # PermissionError escapes
 consumed = route_exists
 ```
 
-#### Correct: reserve bounded shutdown time and derive provenance from success
+#### Correct: reserve bounded lifecycle time and derive provenance from success
 
 ```python
-smartian_fuzz_seconds = max(1, outer_timeout_seconds - 3)
+smartian_fuzz_seconds = max(1, math.floor(outer_timeout_seconds - 6))
 result = run_process_with_deadline(command, timeout_seconds=outer_timeout_seconds)
 consumed = any(
     invocation.returncode == 0 and invocation.valid_report
@@ -1047,4 +1278,43 @@ publish_generation(
     run_id=run_id,
 )
 linked_ids = project_performance_observation_links(current_lineage, passage)
+```
+
+#### Wrong: emulate the complete outer runtime on Apple Silicon
+
+```dockerfile
+ARG LAKES_IMAGE_PLATFORM=linux/amd64
+FROM --platform=${LAKES_IMAGE_PLATFORM} mcr.microsoft.com/dotnet/sdk:8.0
+RUN dotnet build Smartian.fsproj
+```
+
+#### Correct: keep .NET native and cross-target only the Smartian output
+
+```dockerfile
+ARG LAKES_IMAGE_PLATFORM=$BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0 AS smartian-builder
+RUN dotnet build Smartian.fsproj --runtime "${smartian_runtime}"
+FROM --platform=${LAKES_IMAGE_PLATFORM} python:3.10-slim-bookworm
+# ARM only: add amd64 and install libc6:amd64 + libstdc++6:amd64 for official solc.
+COPY --from=smartian-builder /work/docker/vendor/smartian/build/ /work/docker/vendor/smartian/build/
+```
+
+#### Wrong: mix chat providers or guess that Docker inspect failure means missing
+
+```python
+api_key = os.getenv("SILICONFLOW_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+subprocess.run(["sudo", "docker", "image", "inspect", image])
+build_image()  # any non-zero inspect result
+```
+
+#### Correct: bind credentials to the resolved host and fail closed on ambiguity
+
+```python
+api_key = resolve_api_key_from_env(base_url)
+state = _inspect_docker_image(image)
+if state == "missing":
+    build_image_once()
+elif state == "error":
+    return typed_failure
+run_direct_docker_without_sudo()
 ```

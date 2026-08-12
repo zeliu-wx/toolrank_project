@@ -4,7 +4,7 @@ their contracts surround a target contract.
 Group-balanced Gower distance over phi=(solc, loc, +5 complexity): ½ weight on
 the version group, ½ on the 6-dim structure group (each structural dim 1/12),
 with log(1+x), range-normalized numeric dims; Gaussian KDE density per dataset;
-normalize to weights. A single global bandwidth (leave-one-out CV, subsampled)
+normalize to weights. A single global bandwidth (full-sample leave-one-out CV)
 is shared across datasets and precomputed offline. Pure stdlib.
 """
 from __future__ import annotations
@@ -12,9 +12,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import random
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,9 +33,10 @@ from toolrank._complexity import (
 
 
 BANDWIDTH_GRID = (0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.18, 0.25, 0.35)
+# Kept in artifact provenance so the bandwidth policy remains digest-bound.
+# Full-sample fitting has no randomized branch.
 BANDWIDTH_SEED = 0
-BANDWIDTH_SAMPLE_SIZE = 300
-BANDWIDTH_METHOD = "seeded_leave_one_out_gaussian_grid_v1"
+BANDWIDTH_METHOD = "full_leave_one_out_gaussian_grid_v1"
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -64,7 +65,12 @@ def normalize(phi: dict, rlog: dict[str, float]) -> list[float]:
     return [math.log1p(phi[dim]) / rlog[dim] for dim in NUM_DIMS]
 
 
-def gower(solc_a: str, g_a: list[float], solc_b: str, g_b: list[float]) -> float:
+def gower(
+    solc_a: str,
+    g_a: Sequence[float],
+    solc_b: str,
+    g_b: Sequence[float],
+) -> float:
     # Group-balanced Gower: ½ on the version group, ½ on the structure group.
     # num = Σ_{6 dim} |ĝ−ĝ_x|/R_j (g already log1p/range-normalized), so the
     # structural term is (1/12)·num and each structural dim carries 1/12.
@@ -75,29 +81,59 @@ def gower(solc_a: str, g_a: list[float], solc_b: str, g_b: list[float]) -> float
 
 def fit_bandwidth(
     contracts: list[dict],
-    sample_size: int = BANDWIDTH_SAMPLE_SIZE,
-    seed: int = BANDWIDTH_SEED,
     grid: tuple[float, ...] = BANDWIDTH_GRID,
 ) -> float:
-    rnd = random.Random(seed)
     n = len(contracts)
     if n < 2:
         return 0.18
-    idx = rnd.sample(range(n), min(sample_size, n))
-    cache = [
-        (i, [gower(contracts[i]["solc"], contracts[i]["g"], contracts[j]["solc"], contracts[j]["g"]) ** 2
-             for j in range(n)])
-        for i in idx
+
+    # Identical normalized profiles have identical LOO densities. Grouping them
+    # is an algebraically exact reduction: each profile still contributes once
+    # as a target and n-1 times through the multiplicity-weighted neighbour sum.
+    grouped: dict[tuple[str, tuple[float, ...]], int] = {}
+    for contract in contracts:
+        key = (contract["solc"], tuple(contract["g"]))
+        grouped[key] = grouped.get(key, 0) + 1
+    profiles = list(grouped)
+    multiplicities = [grouped[profile] for profile in profiles]
+    kernel_sums = [
+        [float(multiplicity - 1) for multiplicity in multiplicities]
+        for _ in grid
     ]
+    denominators = [2.0 * h * h for h in grid]
+
+    for left_index, (left_solc, left_g) in enumerate(profiles):
+        left_count = multiplicities[left_index]
+        for right_index in range(left_index + 1, len(profiles)):
+            right_solc, right_g = profiles[right_index]
+            right_count = multiplicities[right_index]
+            distance_squared = gower(
+                left_solc,
+                left_g,
+                right_solc,
+                right_g,
+            ) ** 2
+            for grid_index, denominator in enumerate(denominators):
+                kernel = math.exp(-distance_squared / denominator)
+                kernel_sums[grid_index][left_index] += right_count * kernel
+                kernel_sums[grid_index][right_index] += left_count * kernel
+
     best_h, best_ll = 0.18, -1e18
-    for h in grid:
-        denom = 2 * h * h
-        norm = 1.0 / (h * math.sqrt(2 * math.pi))
+    log_neighbour_count = math.log(n - 1)
+    gaussian_scale = math.sqrt(2.0 * math.pi)
+    for grid_index, h in enumerate(grid):
+        log_norm = -math.log(h * gaussian_scale)
         ll = 0.0
-        for i, d2 in cache:
-            s = sum(norm * math.exp(-v / denom) for j, v in enumerate(d2) if j != i)
-            dens = s / (n - 1)
-            ll += math.log(dens) if dens > 0 else -50.0
+        for multiplicity, kernel_sum in zip(
+            multiplicities,
+            kernel_sums[grid_index],
+        ):
+            target_ll = (
+                math.log(kernel_sum) + log_norm - log_neighbour_count
+                if kernel_sum > 0
+                else -50.0
+            )
+            ll += multiplicity * target_ll
         if ll > best_ll:
             best_ll, best_h = ll, h
     return best_h
@@ -135,7 +171,7 @@ def bandwidth_fit_digest(
 
     Runtime validates this linkage without fitting a replacement bandwidth.
     Deterministic builder tests independently verify that the linked value is
-    the seeded grid-search result.
+    the full-sample grid-search result.
     """
     material = {
         "profiles_digest": profiles_digest,
@@ -270,7 +306,8 @@ def _validate_artifact(data: object) -> tuple[dict, dict[str, list[dict]]]:
         != {"method", "seed", "sample_size", "grid", "fit_digest"}
         or bandwidth_meta.get("method") != BANDWIDTH_METHOD
         or bandwidth_meta.get("seed") != BANDWIDTH_SEED
-        or bandwidth_meta.get("sample_size") != BANDWIDTH_SAMPLE_SIZE
+        or not _nonnegative_int(bandwidth_meta.get("sample_size"))
+        or bandwidth_meta.get("sample_size") == 0
         or bandwidth_meta.get("grid") != list(BANDWIDTH_GRID)
         or bandwidth not in BANDWIDTH_GRID
         or not _valid_sha256(bandwidth_meta.get("fit_digest"))
@@ -383,6 +420,8 @@ def _validate_artifact(data: object) -> tuple[dict, dict[str, list[dict]]]:
         or sample_counts != expected_sample_counts
     ):
         raise ProfileArtifactError("profile artifact global counts are inconsistent")
+    if bandwidth_meta["sample_size"] != total_samples:
+        raise ProfileArtifactError("profile artifact bandwidth provenance is incompatible")
     if meta.get("compiler_usage") != dict(sorted(compiler_usage.items())):
         raise ProfileArtifactError("profile artifact compiler usage is stale")
     if coverage_source_digest(coverage) != meta["source_digest"]:

@@ -148,7 +148,11 @@ def test_primary_only_execution_still_gets_post_checker_llm_explanation(
 
 @pytest.mark.parametrize(
     ("execution_status", "expected"),
-    [("executed", PipelineStatus.EXECUTED), ("failed", PipelineStatus.EXECUTION_FAILED)],
+    [
+        ("executed", PipelineStatus.EXECUTED),
+        ("partial", PipelineStatus.EXECUTED_PARTIAL),
+        ("failed", PipelineStatus.EXECUTION_FAILED),
+    ],
 )
 def test_execution_sets_overall_status(
     monkeypatch, tmp_path, execution_status: str, expected: PipelineStatus
@@ -163,7 +167,13 @@ def test_execution_sets_overall_status(
             primary_tool_id="a",
             tool_statuses={
                 "a": ToolExecutionStatus(
-                    status="SUCCESS" if execution_status == "executed" else "FAIL"
+                    status=(
+                        "SUCCESS"
+                        if execution_status == "executed"
+                        else "PARTIAL"
+                        if execution_status == "partial"
+                        else "FAIL"
+                    )
                 )
             },
         )

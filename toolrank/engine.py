@@ -51,6 +51,11 @@ from toolrank.schemas_v2 import (
     Step2DecisionCertificate,
     UserRequirementProfile,
 )
+from toolrank.toolcard_snapshot import (
+    PRIVATE_SNAPSHOT_WARNING,
+    StaticToolcardSnapshot,
+    resolve_static_toolcard_snapshot,
+)
 
 
 class PipelineResult(BaseModel):
@@ -90,6 +95,7 @@ class PipelineResult(BaseModel):
         elif self.status in {
             PipelineStatus.PLAN_READY,
             PipelineStatus.EXECUTED,
+            PipelineStatus.EXECUTED_PARTIAL,
             PipelineStatus.EXECUTION_FAILED,
         }:
             if self.packet.primary_selection.status != Stage1Status.PRIMARY_SELECTED:
@@ -102,11 +108,32 @@ class PipelineResult(BaseModel):
             if self.execution is not None or self.fused_report is not None:
                 raise ValueError("PLAN_READY cannot carry Stage 3 results")
         elif self.status == PipelineStatus.EXECUTED:
-            if self.execution is None or self.execution.status != "executed" or self.fused_report is None:
-                raise ValueError("EXECUTED requires successful execution and a fused report")
+            if (
+                self.execution is None
+                or self.execution.status != "executed"
+                or self.fused_report is None
+            ):
+                raise ValueError(
+                    "EXECUTED requires a successful execution and a fused report"
+                )
+        elif self.status == PipelineStatus.EXECUTED_PARTIAL:
+            if (
+                self.execution is None
+                or self.execution.status != "partial"
+                or self.fused_report is None
+            ):
+                raise ValueError(
+                    "EXECUTED_PARTIAL requires usable partial execution and a fused report"
+                )
         elif self.status == PipelineStatus.EXECUTION_FAILED:
-            if self.execution is None or self.execution.status == "executed" or self.fused_report is None:
-                raise ValueError("EXECUTION_FAILED requires a non-success execution and fused report")
+            if (
+                self.execution is None
+                or self.execution.status != "failed"
+                or self.fused_report is None
+            ):
+                raise ValueError(
+                    "EXECUTION_FAILED requires no usable execution and a fused report"
+                )
         return self
 
 
@@ -214,15 +241,20 @@ def _load_passage_retriever(
     *,
     enabled: bool,
 ):
-    if not enabled or not passage_store_path.exists() or not vector_index_path.exists():
+    if not enabled or not passage_store_path.exists():
         return None
     from toolrank.passage_store import PassageRetriever, load_passage_store
-    from toolrank.vector_store import VectorIndex
 
     store = load_passage_store(passage_store_path)
     if store is None or not store.passages:
         return None
-    return PassageRetriever(store, index=VectorIndex.load(vector_index_path))
+    if vector_index_path.exists():
+        from toolrank.vector_store import VectorIndex
+
+        index = VectorIndex.load(vector_index_path)
+    else:
+        index = None
+    return PassageRetriever(store, index=index)
 
 
 def _stage1_packet(
@@ -441,6 +473,7 @@ def run_recommendation(
     toolcards_path = Path(toolcards_dir)
     db_path = toolcards_path / "performance_db.json"
     generation = None
+    static_snapshot: StaticToolcardSnapshot | None = None
     if kb_root is not None:
         if passage_store_path is not None or vector_index_path is not None:
             raise ValueError(
@@ -451,6 +484,8 @@ def run_recommendation(
         generation = load_current_generation(kb_root)
         kb = generation.performance_kb
     else:
+        static_snapshot = resolve_static_toolcard_snapshot(toolcards_path)
+        db_path = static_snapshot.performance_db_path
         kb = load_performance_db(db_path) if db_path.exists() else _empty_kb()
     features = analyze_target(target_path)
     execution_schedule = ExecutionSchedule(
@@ -480,13 +515,21 @@ def run_recommendation(
     )
     w_recall, w_precision = roc_weights(requirements.recall, requirements.precision)
     warnings: list[str] = []
+    if static_snapshot is not None and static_snapshot.private_active:
+        warnings.append(PRIVATE_SNAPSHOT_WARNING)
+        _emit(emit_stderr, "Warning", PRIVATE_SNAPSHOT_WARNING)
     if generation is None and not db_path.exists():
         warnings.append("performance_db.json not found; Stage 1 has no benchmark evidence")
 
+    profiles_path = (
+        toolcards_path / "contract_profiles.json"
+        if generation is not None
+        else static_snapshot.contract_profiles_path
+    )
     scene_pool = build_scene_pool(
         features,
         kb,
-        profiles_path=toolcards_path / "contract_profiles.json",
+        profiles_path=profiles_path,
     )
     tool_table = build_tool_table(cards, features, budget, kb, scene_pool)
     feasible_ids = [entry.tool for entry in tool_table if entry.feasible]
@@ -543,12 +586,12 @@ def run_recommendation(
             passage_path = (
                 Path(passage_store_path)
                 if passage_store_path
-                else toolcards_path / "passage_store.json"
+                else static_snapshot.passage_store_path
             )
             index_path = (
                 Path(vector_index_path)
                 if vector_index_path
-                else toolcards_path / "vector_index" / "index.json"
+                else static_snapshot.vector_index_path
             )
             retriever = _load_passage_retriever(
                 passage_path,
@@ -681,6 +724,8 @@ def run_recommendation(
         pipeline_status = PipelineStatus.PLAN_READY
     elif execution.status == "executed":
         pipeline_status = PipelineStatus.EXECUTED
+    elif execution.status == "partial":
+        pipeline_status = PipelineStatus.EXECUTED_PARTIAL
     else:
         pipeline_status = PipelineStatus.EXECUTION_FAILED
     return PipelineResult(
