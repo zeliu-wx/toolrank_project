@@ -409,6 +409,21 @@ Stage 1 evaluation IDs come only from
   Quarantine paths live outside every selected `<tool_id>` scan tree. Cleanup
   failure uses return code `74`, prevents analyzer execution, and disables all
   downstream fallback harvesting.
+- Engine orchestration and the standalone runner resolve the public directory
+  through `canonical_contract_output_dir`. The only layout is
+  `<base>/LAKES_out/<target-id>/`; if `<base>` itself is named `LAKES_out`, it
+  is not nested again. Raw analyzer artifacts live under that directory's
+  `raw/` child.
+- Before analyzer startup, the public lifecycle invalidates the previous
+  `fused_report.json` first, followed by `execution.json`,
+  `tool_run_statuses.json`, and `fusion_plan.json`. Cleanup failure prevents
+  analyzer execution. Final JSON uses same-directory atomic replacement, with
+  `fused_report.json` published last as the current generation's completion
+  marker. An exception or interruption therefore cannot expose an older fused
+  report as the new run.
+- The execution plan invokes the packaged runner through `sys.executable`, so
+  a console script launched outside an activated environment cannot switch to
+  a different PATH-level Python.
 - Every analyzer invocation writes into a private staging directory. Output is
   promoted into the final run directory only after return code zero, readable
   JSON-object validation, a recognized list-valued findings container, absence
@@ -657,6 +672,8 @@ Stage 1 evaluation IDs come only from
 | GPTScan raw output is missing, malformed, `success != true`, or lacks list `results` | fail; never synthesize a successful empty report |
 | Selected output cannot be deleted but can be renamed | quarantine outside tool scan paths, then continue/fail as the caller requires |
 | Selected output cannot be deleted or quarantined | return `74`; do not execute, harvest, fuse, or throw an uncaught cleanup exception |
+| Prior top-level fused/final artifacts exist when a new run starts | invalidate or quarantine them before analyzer startup; publish a new fused report last and atomically |
+| Runner is launched from an unactivated virtual environment or another working directory | use the current process interpreter, never a literal PATH-level `python` |
 | Explicit jobs are fewer than selected tools | reject the composition; never switch the estimate from max to sum |
 | API key supplied for execution | ephemeral GPTScan-only delivery; absent from plans, argv, reports, logs, and non-GPTScan environments |
 | Default chat configuration has no explicit provider override | use `https://api.deepseek.com`, `deepseek-v4-flash`, and `DEEPSEEK_API_KEY` |
@@ -929,6 +946,10 @@ Stage 1 evaluation IDs come only from
   cannot bypass analyzer invocation; reports for deleted directory-target
   contracts disappear; unselected tool directories remain untouched; fresh
   reports still normalize and fuse.
+- Public output lifecycle: engine and runner share the exact canonical path;
+  a tracked-only checkout produces the four expected top-level files; runner
+  startup interruption exposes no stale final artifact; atomic publication
+  never leaves a truncated fused report.
 - Native fallback: selected tool directories are cleared before rerun, stale
   findings cannot be harvested, and the newly generated report is harvested.
 - Runtime evidence: field precedence, finite gate, alias collision, same-source

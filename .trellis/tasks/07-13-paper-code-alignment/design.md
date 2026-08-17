@@ -651,6 +651,16 @@ and fusion. Each invocation writes to private staging; only return-code-zero,
 structurally valid reports are promoted. Missing, malformed, failed, timed-out,
 or late reports cannot enter the final run.
 
+The engine and standalone runner also share one public output-layout helper.
+For a target `Token.sol`, both resolve to
+`<results-root>/LAKES_out/Token/`, except that a root already named
+`LAKES_out` is used directly. Before invoking an analyzer, the orchestrator
+invalidates the prior fused report first and then the other three top-level
+artifacts. Final files are atomically replaced in plan/execution/status/fused
+order, so `fused_report.json` is the completed-generation marker. The child
+runner uses `sys.executable`, preserving the environment that launched the
+installed `lakes` command.
+
 The engine passes an API key only in the runner child's ephemeral environment.
 Generic adapters receive a sanitized environment. GPTScan alone receives the
 secret through private stdin and converts it to in-memory arguments inside its

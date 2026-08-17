@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from toolrank.execution import build_execution_plan
 from toolrank.schemas import CompositionPlan
 
@@ -26,6 +28,7 @@ def test_execution_plan_runs_additive_owners_in_parallel(tmp_path) -> None:
     assert result.selected_tool_ids == ["a", "b"]
     assert result.primary_tool_id == "a"
     assert result.category_owners == {"reentrancy": ["a", "b"]}
+    assert result.runner_command[0] == sys.executable
     assert {tool: status.status for tool, status in result.tool_statuses.items()} == {
         "a": "NOT_RUN",
         "b": "NOT_RUN",

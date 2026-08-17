@@ -13,10 +13,16 @@ There is no primary-tool certification or candidate-primary state. Low category 
 ## Install
 
 ```bash
+git clone https://github.com/zeliu-wx/toolrank_project.git
+cd toolrank_project
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python -m pip install .
+python -m pip install -e .
 ```
+
+The editable install is intentional for a GitHub source checkout: analyzer
+adapters use the tracked resources under `docker/`. The portable full
+`--execute` environment is the Docker image described below.
 
 The install also provides `lakes-profile-builder`. It rebuilds the shipped
 Gower/KDE benchmark profiles from the tracked manifest and a caller-owned
@@ -114,13 +120,17 @@ Tools whose ToolCard declares `d8_mode=fuzz` use a separate user-controlled camp
 
 The top-level result status is one of `PRIMARY_NOT_SELECTED`, `NO_EXECUTABLE_PLAN`, `PLAN_READY`, `EXECUTED`, `EXECUTED_PARTIAL`, or `EXECUTION_FAILED`. `EXECUTED_PARTIAL` preserves valid current-run reports when at least one selected tool succeeds and another fails or times out. Objects from later stages are absent after an earlier terminal status.
 
-Run selected analyzers too:
+Run selected analyzers too when the analyzer runtime is already provisioned
+(the Docker workflow below is the supported clean-checkout path):
 
 ```bash
 lakes recommend path/to/Contract.sol --execute --emit summary
 ```
 
-Outputs are written under `LAKES_out/<contract>/`:
+Outputs are always written under the canonical `LAKES_out/<contract>/`
+directory. A custom `--results-root out` places that canonical tree at
+`out/LAKES_out/<contract>/`; passing a directory already named `LAKES_out`
+does not add another nested `LAKES_out`.
 
 - `fusion_plan.json` records the primary and additive category owner sets.
 - `tool_run_statuses.json` records success, partial, failure, timeout, and measured runtime per tool.
@@ -142,10 +152,14 @@ only `OPENAI_API_KEY`.
 
 ```bash
 docker build -t lakes .
+mkdir -p LAKES_out
 docker run --rm --privileged \
-  -v "$PWD/out:/work/out" \
+  -v "$PWD/LAKES_out:/work/LAKES_out" \
   -v "$PWD/path/to/Contract.sol:/work/Contract.sol:ro" \
   -e DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
   -e OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
-  lakes recommend /work/Contract.sol --execute --emit summary --results-root /work/out
+  lakes recommend /work/Contract.sol --execute --emit summary --results-root /work/LAKES_out
 ```
+
+That command publishes the host-visible result directly at
+`$PWD/LAKES_out/Contract/`.
