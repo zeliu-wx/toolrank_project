@@ -772,6 +772,26 @@ git check-ignore -v toolcards/.private/passage_store.json \
 git diff --check
 ```
 
+## Checkpoint 27 — Canonical fresh-clone Stage 3 output (AC47)
+
+- [x] Centralize the `LAKES_out/<contract>` layout for engine and runner.
+- [x] Invalidate the four prior top-level artifacts before analyzer startup,
+  stopping before execution when cleanup cannot fail closed.
+- [x] Atomically publish final JSON and write `fused_report.json` last.
+- [x] Launch the child runner with `sys.executable`.
+- [x] Make the GitHub install and Docker examples preserve tracked analyzer
+  paths and publish directly to the checkout's `LAKES_out/` directory.
+- [x] Add tracked-only checkout, runner-start exception, cleanup-failure,
+  canonical-path, and interpreter regressions; run a real Securify smoke.
+
+```bash
+pytest -q tests/test_execution_plan_v2.py tests/test_cleanup_quarantine.py \
+  tests/test_runner_fresh_execution.py tests/test_final_report.py \
+  tests/test_release_packaging.py
+python -m compileall -q toolrank tests
+git diff --check
+```
+
 ## Expected File Scope
 
 Primary implementation files:

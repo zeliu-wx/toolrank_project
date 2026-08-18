@@ -217,7 +217,7 @@ def build_execution_plan(
     primary = composition.primary_tool_id
     category_mapping = _tool_category_mapping(composition)
     command = [
-        "python",
+        sys.executable,
         str(runner_script_path),
         str(Path(target_path).resolve()),
         str(Path(results_root).resolve()),

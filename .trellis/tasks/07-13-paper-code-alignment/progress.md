@@ -630,3 +630,24 @@ fallback and coverage result were superseded by the reliability work below.
   history still contains superseded private metadata labels from an earlier
   public commit; removing those historical blobs requires separately approved
   history rewriting and a force push.
+
+## 2026-08-17 — Canonical fresh-clone Stage 3 output
+
+- Confirmed that the prior `securify2_direct.json` was an ad hoc diagnostic,
+  not a product output. Both public entry points now consume one canonical
+  output-layout helper for `LAKES_out/<contract>/`.
+- Fixed the actual interruption hazard: a new execution invalidates the prior
+  four top-level artifacts before starting any analyzer, with the old fused
+  report removed first. Final JSON is atomically replaced and the fused report
+  is published last.
+- The child runner now uses the active Python interpreter. GitHub checkout
+  instructions use an editable install, and the Docker bind mount writes
+  directly to the checkout's `LAKES_out/` directory.
+- Added an isolated tracked-only CLI execution regression plus exception,
+  cleanup-failure, path, and interpreter coverage. A real Securify execution
+  produced the exact four canonical top-level files, one raw
+  `securify2/result.json`, status `SUCCESS`, and nine fused findings.
+- Verification passed: complete suite `583 passed`; tracked-only editable
+  install and execution from outside the checkout; `compileall`;
+  `git diff --check`; protected knowledge-file diff checks; and
+  `docker build --check .` with no warnings.

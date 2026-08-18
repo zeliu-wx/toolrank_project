@@ -23,7 +23,12 @@ from toolrank.fusion import compact_fused_report_payload, fuse_reports
 from toolrank.openai_compat import load_openai_client
 from toolrank.plan_runtime import estimated_budget, plan_constraint_reasons, within_budget
 from toolrank.report_explanation import generate_combination_explanation
-from toolrank.report_validity import OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+from toolrank.report_validity import (
+    OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+    atomic_write_text,
+    canonical_contract_output_dir,
+    clear_canonical_final_artifacts,
+)
 from toolrank.roc import roc_weights
 from toolrank.retrieval import load_toolcards
 from toolrank.scene_scoring import compute_scene_scores, select_primary
@@ -348,14 +353,6 @@ def _accepted_without_checker(certificate: Step2DecisionCertificate, reason: str
     )
 
 
-def _contract_output_dir(results_root: str | Path, target_path: str | Path) -> Path:
-    root = Path(results_root)
-    lakes_root = root if root.name == "LAKES_out" else root / "LAKES_out"
-    target = Path(target_path)
-    contract_id = target.stem if target.suffix.lower() == ".sol" else target.name
-    return lakes_root / contract_id
-
-
 def _run_execution_pipeline(
     *,
     target_path: str | Path,
@@ -369,7 +366,12 @@ def _run_execution_pipeline(
     combination_explanation: CombinationExplanation | None = None,
     selected_tool_solc_ranges: dict[str, str] | None = None,
 ) -> tuple[ExecutionResult, FusedReport, Path]:
-    output_dir = _contract_output_dir(results_root, target_path)
+    output_dir = canonical_contract_output_dir(results_root, target_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not clear_canonical_final_artifacts(output_dir):
+        raise RuntimeError(
+            f"cannot invalidate previous LAKES result before execution: {output_dir}"
+        )
     raw_dir = output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     planned = build_execution_plan(
@@ -410,13 +412,16 @@ def _run_execution_pipeline(
     )
     execution = execution.model_copy(update={"fusion_summary": fused.summary})
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "fusion_plan.json").write_text(
-        composition.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    atomic_write_text(
+        output_dir / "fusion_plan.json",
+        composition.model_dump_json(indent=2) + "\n",
     )
-    (output_dir / "execution.json").write_text(
-        execution.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    atomic_write_text(
+        output_dir / "execution.json",
+        execution.model_dump_json(indent=2) + "\n",
     )
-    (output_dir / "tool_run_statuses.json").write_text(
+    atomic_write_text(
+        output_dir / "tool_run_statuses.json",
         json.dumps(
             {
                 tool: status.model_dump(mode="json")
@@ -426,11 +431,11 @@ def _run_execution_pipeline(
             sort_keys=True,
         )
         + "\n",
-        encoding="utf-8",
     )
-    (output_dir / "fused_report.json").write_text(
-        json.dumps(compact_fused_report_payload(fused), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    atomic_write_text(
+        output_dir / "fused_report.json",
+        json.dumps(compact_fused_report_payload(fused), ensure_ascii=False, indent=2)
+        + "\n",
     )
     return execution, fused, output_dir
 

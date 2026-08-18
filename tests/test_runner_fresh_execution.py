@@ -157,6 +157,37 @@ def test_fresh_analyzer_report_is_enriched_and_fused(
     assert fused["findings"][0]["category"] == "access_control"
 
 
+def test_lakes_named_symlink_root_does_not_create_a_second_lakes_tree(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "Token.sol"
+    target.write_text("pragma solidity ^0.4.25; contract Token {}\n", encoding="utf-8")
+    physical_root = tmp_path / "physical-output"
+    physical_root.mkdir()
+    requested_root = tmp_path / "LAKES_out"
+    requested_root.symlink_to(physical_root, target_is_directory=True)
+
+    def fake_run_tool(tool_id, contract_path, out_dir, **kwargs):
+        _write_report(out_dir / "result.json", "tx-origin")
+        return 0
+
+    monkeypatch.setattr(runner, "_run_adapter_with_deadline", fake_run_tool)
+
+    rc = runner.run_targets(
+        target,
+        requested_root,
+        ["slither"],
+        primary_tool="slither",
+    )
+
+    assert rc == 0
+    expected = physical_root / "Token"
+    assert (expected / "fused_report.json").is_file()
+    assert (expected / "raw" / "slither" / "result.json").is_file()
+    assert not (physical_root / "LAKES_out").exists()
+
+
 def test_directory_target_removes_reports_for_deleted_contracts(
     tmp_path: Path,
     monkeypatch,

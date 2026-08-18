@@ -126,6 +126,225 @@ def test_fresh_wheel_contains_default_toolcards_and_cli_resolves_them(
     assert probe.returncode == 0, probe.stdout + probe.stderr
 
 
+def test_fresh_tracked_checkout_execute_publishes_one_canonical_tree(
+    tmp_path: Path,
+) -> None:
+    fresh = tmp_path / "fresh-checkout"
+    fresh.mkdir()
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout.decode().split("\0")
+    target_relative = Path(
+        "docker/vendor/securify2/securify/staticanalysis/testContract.sol"
+    )
+    for raw_relative in tracked:
+        if not raw_relative:
+            continue
+        relative = Path(raw_relative)
+        if not (
+            relative.parts[0] in {"toolrank", "toolcards"}
+            or relative == target_relative
+        ):
+            continue
+        source = ROOT / relative
+        if not source.is_file():
+            continue
+        destination = fresh / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            r'''
+import json
+import os
+import sys
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+import toolcards
+import toolrank
+from toolrank import contract_profile, engine, execution
+from toolrank.cli import _DEFAULT_TOOLCARDS_DIR, app
+from toolrank.schemas import ContractFeatures, ToolExecutionStatus
+
+fresh = Path.cwd()
+target = fresh / "docker/vendor/securify2/securify/staticanalysis/testContract.sol"
+results_root = fresh / "demo-output"
+run_dir = results_root / "LAKES_out" / "testContract"
+run_dir.mkdir(parents=True)
+for filename in (
+    "fusion_plan.json",
+    "execution.json",
+    "tool_run_statuses.json",
+    "fused_report.json",
+):
+    (run_dir / filename).write_text(
+        json.dumps({"stale_sentinel": filename}),
+        encoding="utf-8",
+    )
+
+assert not (fresh / "toolcards/.private").exists()
+assert target.is_file()
+assert Path(toolrank.__file__).resolve().is_relative_to(fresh.resolve())
+assert Path(toolcards.__file__).resolve().is_relative_to(fresh.resolve())
+assert Path(_DEFAULT_TOOLCARDS_DIR).resolve() == (fresh / "toolcards").resolve()
+
+raw_root = run_dir / "raw"
+for card_path in (fresh / "toolcards").glob("*.json"):
+    try:
+        card = json.loads(card_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        continue
+    tool_id = str(card.get("tool_id") or "").strip().lower()
+    if not tool_id:
+        continue
+    stale = raw_root / tool_id / "result.json"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "name": "stale-sentinel",
+                        "filename": "Old.sol",
+                        "line": 99,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+contract_profile.analyze_target = lambda _path: ContractFeatures(
+    target_path=str(target),
+    source_kind="sol",
+    present_input_kinds=["sol"],
+    solidity_versions=["0.5.4"],
+    solidity_version_constraints=["^0.5.4"],
+    primary_solidity_version="0.5.4",
+    gower_solc_bucket="0.5.x",
+    gower_ast_available=True,
+    loc_total=19,
+    function_count=2,
+    file_count=1,
+    execution_input_count=1,
+    contract_count=1,
+    cyclomatic_avg=1.0,
+    cyclomatic_max=1,
+    cyclomatic_sum=3,
+)
+engine.load_openai_client = lambda: None
+
+def fake_stream(command, **_kwargs):
+    assert command[0] == sys.executable
+    assert Path(command[1]).resolve().is_relative_to(fresh.resolve())
+    current_raw = Path(command[3])
+    assert current_raw.resolve() == raw_root.resolve()
+    selected = command[command.index("--tools") + 1].split(",")
+    statuses = {}
+    for tool in selected:
+        report = current_raw / tool / "result.json"
+        assert not report.exists(), f"stale report survived: {report}"
+        finding = {
+            "name": "tx-origin",
+            "category": "access_control",
+            "filename": target.name,
+            "line": 7,
+        }
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps({"findings": [finding]}), encoding="utf-8")
+        statuses[tool] = ToolExecutionStatus(
+            status="SUCCESS",
+            return_code=0,
+            runtime_minutes=0.01,
+        ).model_dump(mode="json")
+    (current_raw / "tool_run_statuses.json").write_text(
+        json.dumps(statuses),
+        encoding="utf-8",
+    )
+    return 0, "fresh isolated runner\n", None
+
+execution._stream_runner_output = fake_stream
+
+response = CliRunner().invoke(
+    app,
+    [
+        "recommend",
+        str(target),
+        "--execute",
+        "--emit",
+        "summary",
+        "--no-retrieval",
+        "--no-checker",
+        "--results-root",
+        str(results_root),
+    ],
+)
+assert response.exit_code == 0, (response.stdout, response.exception)
+assert "status: EXECUTED" in response.stdout
+assert f"LAKES_out: {run_dir / 'fused_report.json'}" in response.stdout
+expected = {
+    "fusion_plan.json",
+    "execution.json",
+    "tool_run_statuses.json",
+    "fused_report.json",
+}
+assert {path.name for path in run_dir.iterdir() if path.is_file()} == expected
+for filename in expected:
+    payload = json.loads((run_dir / filename).read_text(encoding="utf-8"))
+    assert "stale_sentinel" not in payload
+    visible = [
+        path.resolve()
+        for path in fresh.rglob(filename)
+        if "raw" not in path.relative_to(fresh).parts
+    ]
+    assert visible == [(run_dir / filename).resolve()]
+assert [path.resolve() for path in fresh.rglob("LAKES_out") if path.is_dir()] == [
+    (results_root / "LAKES_out").resolve()
+]
+fused = (run_dir / "fused_report.json").read_text(encoding="utf-8")
+assert "tx-origin" in fused
+assert "stale_sentinel" not in fused
+assert "Old.sol" not in fused
+''',
+        ],
+        cwd=fresh,
+        env={
+            **{
+                key: value
+                for key, value in os.environ.items()
+                if key
+                not in {
+                    "DEEPSEEK_API_KEY",
+                    "OPENAI_API_KEY",
+                    "OPENAI_API_TOKEN",
+                    "LAKES_TOOLCARDS_PRIVATE_DIR",
+                }
+            },
+            "PYTHONPATH": str(fresh),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert probe.returncode == 0, probe.stdout + probe.stderr
+
+
+def test_readme_clean_checkout_execution_uses_canonical_host_directory() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "python -m pip install -e ." in readme
+    assert '-v "$PWD/LAKES_out:/work/LAKES_out"' in readme
+    assert "--results-root /work/LAKES_out" in readme
+    assert '-v "$PWD/out:/work/out"' not in readme
+
+
 def test_public_profile_artifacts_are_manifest_and_audit_digest_bound() -> None:
     manifest_path = ROOT / "toolcards" / "contract_profile_manifest.json"
     profile_path = ROOT / "toolcards" / "contract_profiles.json"

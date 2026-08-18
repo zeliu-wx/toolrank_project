@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from toolrank import engine, execution, report_validity, runner
 from toolrank.report_validity import OUTPUT_CLEANUP_FAILURE_RETURN_CODE
 from toolrank.schemas import (
@@ -108,6 +110,28 @@ def test_cleanup_returns_false_when_delete_and_quarantine_move_both_fail(
         quarantine_root,
     )
     assert stale.exists()
+
+
+def test_atomic_final_write_failure_preserves_previous_complete_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    artifact = tmp_path / "fused_report.json"
+    artifact.write_text('{"generation":"previous"}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        report_validity.os,
+        "replace",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("replace failed")),
+    )
+
+    with pytest.raises(OSError, match="replace failed"):
+        report_validity.atomic_write_text(
+            artifact,
+            '{"generation":"current"}\n',
+        )
+
+    assert artifact.read_text(encoding="utf-8") == '{"generation":"previous"}\n'
+    assert list(tmp_path.glob(".fused_report.json.*.tmp")) == []
 
 
 def test_normal_adapter_cleanup_failure_is_controlled_and_skips_analyzer(
@@ -402,3 +426,73 @@ def test_cleanup_failure_prevents_engine_fallback_fusion_of_stale_report(
     assert fused.findings == []
     assert selected_stale.exists()
     assert unselected_report.exists()
+
+
+def test_engine_invalidates_previous_canonical_result_before_runner_start(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "Token.sol"
+    target.write_text("pragma solidity ^0.4.25; contract Token {}", encoding="utf-8")
+    outputs = tmp_path / "outputs"
+    output_dir = report_validity.canonical_contract_output_dir(outputs, target)
+    output_dir.mkdir(parents=True)
+    for filename in report_validity.CANONICAL_FINAL_ARTIFACTS:
+        (output_dir / filename).write_text("stale generation", encoding="utf-8")
+
+    monkeypatch.setattr(
+        engine,
+        "execute_plan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("runner startup failed")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="runner startup failed"):
+        engine._run_execution_pipeline(
+            target_path=target,
+            composition=CompositionPlan(
+                selected_tool_ids=["slither"],
+                primary_tool_id="slither",
+                complementary_tool_ids=[],
+            ),
+            results_root=outputs,
+            runner_script=Path(runner.__file__),
+            runner_cwd=None,
+            gptscan_timeout_sec=7,
+            openai_api_key=None,
+            openai_api_base=None,
+        )
+
+    assert output_dir == outputs / "LAKES_out" / "Token"
+    assert all(
+        not (output_dir / filename).exists()
+        for filename in report_validity.CANONICAL_FINAL_ARTIFACTS
+    )
+
+
+def test_runner_canonical_cleanup_failure_stops_before_analyzer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = tmp_path / "Token.sol"
+    target.write_text("pragma solidity ^0.4.25; contract Token {}", encoding="utf-8")
+    calls = 0
+
+    def fake_adapter(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return 0
+
+    monkeypatch.setattr(runner, "_run_adapter_with_deadline", fake_adapter)
+    monkeypatch.setattr(runner, "clear_canonical_final_artifacts", lambda _path: False)
+
+    rc = runner.run_targets(
+        target,
+        tmp_path / "outputs",
+        ["slither"],
+        primary_tool="slither",
+    )
+
+    assert rc == OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+    assert calls == 0

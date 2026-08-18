@@ -51,6 +51,9 @@ from toolrank.openai_compat import (
 from toolrank.process_deadline import run_process_with_deadline
 from toolrank.report_validity import (
     OUTPUT_CLEANUP_FAILURE_RETURN_CODE,
+    atomic_write_text,
+    canonical_contract_output_dir,
+    clear_canonical_final_artifacts,
     clear_selected_run_artifacts,
     find_valid_report,
     load_valid_report,
@@ -1499,7 +1502,10 @@ def _write_fusion_plan(
             for category in categories
         },
     }
-    (results_root / "fusion_plan.json").write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(
+        results_root / "fusion_plan.json",
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    )
 
 
 def _write_tool_status_manifest(
@@ -1539,19 +1545,10 @@ def _compilation_failure_statuses(
     }
 
 
-def _lakes_output_dir(results_root: Path) -> Path:
-    return results_root if results_root.name == "LAKES_out" else results_root / "LAKES_out"
-
-
-def _contract_output_dir(results_root: Path, target_path: Path) -> Path:
-    contract_id = target_path.stem if target_path.suffix.lower() == ".sol" else target_path.name
-    return _lakes_output_dir(results_root) / contract_id
-
-
 def _tool_results_root(results_root: Path, target_path: Path, *, write_lakes_output: bool) -> Path:
     if not write_lakes_output:
         return results_root
-    return _contract_output_dir(results_root, target_path) / "raw"
+    return canonical_contract_output_dir(results_root, target_path) / "raw"
 
 
 def _composition_from_runner_inputs(
@@ -1607,17 +1604,14 @@ def _write_lakes_outputs(
     composition: CompositionPlan,
     fused_report: FusedReport,
 ) -> Path:
-    lakes_dir = _contract_output_dir(results_root, target_path)
+    lakes_dir = canonical_contract_output_dir(results_root, target_path)
     lakes_dir.mkdir(parents=True, exist_ok=True)
-    (lakes_dir / "fused_report.json").write_text(
-        json.dumps(compact_fused_report_payload(fused_report), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    (lakes_dir / "fusion_plan.json").write_text(
+    atomic_write_text(
+        lakes_dir / "fusion_plan.json",
         json.dumps(composition.model_dump(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
-    (lakes_dir / "tool_run_statuses.json").write_text(
+    atomic_write_text(
+        lakes_dir / "tool_run_statuses.json",
         json.dumps(
             {
                 tool: status.model_dump(mode="json")
@@ -1627,7 +1621,15 @@ def _write_lakes_outputs(
             sort_keys=True,
         )
         + "\n",
-        encoding="utf-8",
+    )
+    atomic_write_text(
+        lakes_dir / "fused_report.json",
+        json.dumps(
+            compact_fused_report_payload(fused_report),
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
     )
     return lakes_dir
 
@@ -1650,7 +1652,7 @@ def run_targets(
     selected_tool_solc_ranges: dict[str, str] | None = None,
 ) -> int:
     target = Path(target_path).resolve()
-    root = Path(results_root).resolve()
+    root = Path(results_root).expanduser().absolute()
     if not target.exists():
         _die(f"Target path not found: {target}", 1)
     if timeout <= 0:
@@ -1685,7 +1687,17 @@ def run_targets(
         tool_categories=parsed_tool_categories,
     )
     if write_lakes_output:
-        _write_fusion_plan(_contract_output_dir(root, target), selected_tools=mapped_tools, primary_tool=mapped_primary, tool_categories=parsed_tool_categories)
+        output_dir = canonical_contract_output_dir(root, target)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if not clear_canonical_final_artifacts(output_dir):
+            print("[warn] canonical LAKES output cleanup failed", file=sys.stderr)
+            return OUTPUT_CLEANUP_FAILURE_RETURN_CODE
+        _write_fusion_plan(
+            output_dir,
+            selected_tools=mapped_tools,
+            primary_tool=mapped_primary,
+            tool_categories=parsed_tool_categories,
+        )
 
     mapping = _load_mapping()
     resolved_smartbugs_dir = Path(smartbugs_dir).resolve() if smartbugs_dir else None

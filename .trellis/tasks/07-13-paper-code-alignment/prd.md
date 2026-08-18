@@ -656,6 +656,23 @@ recommendation without entering the public release knowledge.
 - Git, wheel, and Docker exclusions cover the source passage file, merged
   store, and vector index together.
 
+### R26 — One fresh-clone execution output contract
+
+- The CLI orchestration path and standalone runner must derive the contract
+  directory from one shared function. `RESULTS/LAKES_out/<contract>/` is the
+  only public layout; a root already named `LAKES_out` must not be nested again.
+- Before a new analyzer run starts, invalidate or quarantine the previous
+  `fused_report.json`, `execution.json`, `tool_run_statuses.json`, and
+  `fusion_plan.json`, with `fused_report.json` invalidated first. An exception
+  or interruption must never leave an old fused report visible as this run.
+- Publish final JSON through same-directory atomic replacement and publish
+  `fused_report.json` last as the completed-generation marker.
+- Spawn the packaged runner with the active interpreter, not a PATH-dependent
+  literal `python`.
+- The documented clean-checkout Docker command must publish directly into the
+  checkout's `LAKES_out/<contract>/` directory. A source checkout uses an
+  editable install so tracked analyzer resources retain stable paths.
+
 ## Acceptance Criteria
 
 - [x] AC1: Stage 1 selects exactly the highest-scoring feasible tool with support mass at least `0.2`, using the paper tie-break order.
@@ -756,6 +773,9 @@ recommendation without entering the public release knowledge.
 - [x] AC46: Each Stage 2 category exposes at most the five highest-ranked fully
   eligible complements; under-evidenced and overflow candidates consume no
   legal slot but remain visible in the typed audit matrix.
+- [x] AC47: A tracked-only fresh checkout publishes one canonical Stage 3 tree;
+  old final artifacts are invalidated before execution, final JSON is atomic,
+  and runner startup uses the active Python interpreter.
 
 ## Out of Scope
 
