@@ -25,6 +25,13 @@ build/
 .DS_Store
 .vscode/
 
+# Local development metadata
+.agents/
+.codex/
+.trellis/
+AGENTS.md
+allinone.md
+
 # ToolRank generated output and local research artifacts
 out/
 LAKES_out/

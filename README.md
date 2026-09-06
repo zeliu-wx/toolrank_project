@@ -12,15 +12,16 @@ There is no primary-tool certification or candidate-primary state. Low category 
 
 ## Install
 
+Download and extract the repository archive, then run these commands from the
+extracted directory containing `pyproject.toml`:
+
 ```bash
-git clone https://github.com/zeliu-wx/toolrank_project.git
-cd toolrank_project
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
-The editable install is intentional for a GitHub source checkout: analyzer
+The editable install is intentional for a source checkout: analyzer
 adapters use the tracked resources under `docker/`. The portable full
 `--execute` environment is the Docker image described below.
 

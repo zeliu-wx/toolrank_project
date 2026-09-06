@@ -1,3 +1,0 @@
-{"file":".trellis/spec/backend/lakes-scheduling-contract.md","reason":"Verify every changed boundary against the executable scheduling contract."}
-{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Audit source-to-CLI data survival and one-owner validation."}
-{"file":".trellis/tasks/07-13-paper-code-alignment/research/fuzz-budget-runtime.md","reason":"Verify AC36 keeps Stage 1 historical runtime separate while one checked campaign allocation reaches all Stage 2 and execution consumers."}

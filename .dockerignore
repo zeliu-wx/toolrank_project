@@ -4,6 +4,11 @@
 Dockerfile
 .DS_Store
 .claude/
+.agents/
+.codex/
+.trellis/
+AGENTS.md
+allinone.md
 .pytest_cache/
 **/__pycache__/
 **/*.pyc
