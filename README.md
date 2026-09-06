@@ -4,11 +4,11 @@ LAKES recommends and optionally runs smart-contract vulnerability analyzers for 
 
 Its scheduling flow is:
 
-1. Stage 1 computes Gower-KDE benchmark weights, ranks feasible tools by overall recall/precision, applies the benchmark-support threshold `tau = 0.2`, and directly fixes the highest-ranked tool as the primary `t*`.
-2. Stage 2 keeps `t*` as the owner of every requested category. It opens complement search only when the primary category evidence is missing, non-positive, below `n_eff = 15`, or credibly weaker than a count-qualified peer. A complement needs positive recall-side evidence, `n_eff >= 15`, and a statistically credible positive gap over a count-qualified primary baseline. Missing or under-evidenced primary data can trigger diagnostics but cannot prove a complement stronger.
+1. Stage 1 matches the target contract to benchmark datasets using Gower-KDE weights, ranks feasible tools by historical recall and precision, and selects a primary tool.
+2. Stage 2 combines category-level performance evidence with retrieved literature to plan complementary tools for the requested vulnerability categories, subject to the user's preferences and budget.
 3. Stage 3 runs the selected tools concurrently for each contract, processes directory contracts sequentially, and fuses findings with their tool provenance. Findings sharing a non-empty `(category, location)` are grouped, while conflicting severity, confidence, or explanation values are retained and marked.
 
-There is no primary-tool certification or candidate-primary state. Low category support never replaces `t*`. If no complement qualifies, or decision repair is exhausted, the checked fallback is the primary-only plan.
+The primary tool remains part of the selected plan. If no suitable complement is selected, LAKES uses a checked primary-only plan.
 
 ## Install
 
@@ -115,7 +115,7 @@ lakes recommend path/to/Contract.sol \
 
 The one-contract estimate is the maximum selected-tool runtime, not their sum. Directory estimates multiply that maximum by the number of sequential Solidity files. `--execution-jobs 0` provides one worker per selected tool; an explicit smaller job cap makes a composition ineligible. The default tool timeout is the runtime budget converted to seconds, while an explicitly shorter timeout is checked before execution. Unknown primary runtime or a primary that exceeds these constraints produces `NO_EXECUTABLE_PLAN`; LAKES does not silently substitute another primary.
 
-Runtime evidence comes only from historical observations in `toolcards/performance_db.json`; ToolCards do not supply runtime values. Compiler-compatible, LOC-compatible scene rows must retain at least `0.2` of the original scene mass before a relevance-weighted P90 is schedulable. Weak, incompatible, campaign-cap, and unrelated historical rows remain unknown. Candidate-level provenance records units, basis, scene weights, target buckets, and available failure/count metadata.
+Runtime estimates use compatible historical observations in `toolcards/performance_db.json` and are checked against the requested execution budget.
 
 Tools whose ToolCard declares `d8_mode=fuzz` use a separate user-controlled campaign allocation instead of a fabricated historical completion time. The default campaign is the per-tool timeout derived from the runtime budget; `--tool-timeout-sec` sets the per-input campaign explicitly. Concurrent fuzzers each receive the full allocation, directory inputs multiply it sequentially, and the unchanged outer deadline is passed to both execution paths. Historical and literature evidence remains descriptive and cannot affect Stage 1 or replace the checked campaign.
 
